@@ -201,20 +201,62 @@ function escapePdfText(text: string) {
   return text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
 }
 
-function createSimplePdf(lines: string[]) {
+type PdfKpi = { label: string; value: string };
+
+function createFinancePdfReport(params: {
+  periodLabel: string;
+  generatedAt: string;
+  kpis: PdfKpi[];
+  topActivities: string[];
+}) {
   const header = "%PDF-1.4\n";
-  const textLines = lines.map((line, idx) => {
-    const y = 770 - idx * 18;
-    return `BT /F1 11 Tf 50 ${y} Td (${escapePdfText(line)}) Tj ET`;
+  const commands: string[] = [];
+
+  // Page background.
+  commands.push("0.13 0.13 0.15 rg 0 0 595 842 re f");
+  // Header block in warm accent.
+  commands.push("0.95 0.43 0.19 rg 0 760 595 82 re f");
+  // Section containers.
+  commands.push("0.17 0.17 0.20 rg 34 516 527 220 re f");
+  commands.push("0.17 0.17 0.20 rg 34 80 527 418 re f");
+
+  const text = (x: number, y: number, content: string, size = 11, font: "F1" | "F2" = "F1") =>
+    `BT /${font} ${size} Tf 1 1 1 rg ${x} ${y} Td (${escapePdfText(content)}) Tj ET`;
+  const accentText = (x: number, y: number, content: string, size = 11, font: "F1" | "F2" = "F1") =>
+    `BT /${font} ${size} Tf 0.95 0.68 0.45 rg ${x} ${y} Td (${escapePdfText(content)}) Tj ET`;
+
+  commands.push(text(42, 802, "AFRICII Funding Intelligence Brief", 18, "F2"));
+  commands.push(text(42, 782, `Period: ${params.periodLabel}`, 11, "F1"));
+  commands.push(text(430, 782, params.generatedAt, 10, "F1"));
+  commands.push(accentText(42, 724, "Executive Snapshot", 13, "F2"));
+
+  const kpiCards = params.kpis.slice(0, 6);
+  kpiCards.forEach((kpi, idx) => {
+    const col = idx % 3;
+    const row = Math.floor(idx / 3);
+    const x = 44 + col * 174;
+    const y = 640 - row * 94;
+    commands.push("0.21 0.21 0.24 rg " + `${x} ${y - 14} 162 80 re f`);
+    commands.push(accentText(x + 10, y + 48, kpi.label, 10, "F1"));
+    commands.push(text(x + 10, y + 24, kpi.value, 15, "F2"));
   });
-  const streamContent = `${textLines.join("\n")}\n`;
+
+  commands.push(accentText(42, 474, "Top Activities", 13, "F2"));
+  params.topActivities.slice(0, 10).forEach((activity, idx) => {
+    const y = 446 - idx * 34;
+    commands.push("0.21 0.21 0.24 rg 44 " + `${y - 10} 507 26 re f`);
+    commands.push(text(54, y, `${idx + 1}. ${activity}`, 10, "F1"));
+  });
+
+  const streamContent = `${commands.join("\n")}\n`;
 
   const objects = [
     "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
     "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
-    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>\nendobj\n",
     "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
-    `5 0 obj\n<< /Length ${streamContent.length} >>\nstream\n${streamContent}endstream\nendobj\n`,
+    "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n",
+    `6 0 obj\n<< /Length ${streamContent.length} >>\nstream\n${streamContent}endstream\nendobj\n`,
   ];
 
   let body = "";
@@ -452,24 +494,23 @@ export default function AdminFinancePage() {
             <Button
               variant="outline"
               onClick={() => {
-                const reportLines = [
-                  "AFRICII ADMIN FUNDING BRIEF",
-                  `Generated: ${new Date().toLocaleString()}`,
-                  `Period filter: ${selectedPeriod.toUpperCase()}`,
-                  "",
-                  `Funding envelope: ${formatMoney(TOTAL_FUNDING_USD)}`,
-                  `Planned: ${formatMoney(summary.planned)}`,
-                  `Utilized: ${formatMoney(summary.actual)} (${summary.utilization.toFixed(1)}%)`,
-                  `Runway: ${formatMoney(summary.runway)}`,
-                  `Attendance reached: ${summary.reached.toLocaleString()}`,
-                  "",
-                  "Top activities:",
-                  ...filteredActivities.slice(0, 6).map(
+                const reportBlob = createFinancePdfReport({
+                  periodLabel: selectedPeriodLabel,
+                  generatedAt: new Date().toLocaleString(),
+                  kpis: [
+                    { label: "Envelope", value: formatMoney(selectedEnvelope) },
+                    { label: "Planned", value: formatMoney(summary.planned) },
+                    { label: "Utilized", value: `${formatMoney(summary.actual)} (${summary.utilization.toFixed(1)}%)` },
+                    { label: "Runway", value: formatMoney(summary.runway) },
+                    { label: "Attendance Reached", value: summary.reached.toLocaleString() },
+                    { label: "Active Activities", value: String(filteredActivities.length) },
+                  ],
+                  topActivities: filteredActivities.map(
                     (activity) =>
-                      `- ${activity.title} | ${activity.quarter} | ${activity.location} | ${formatMoney(activity.actualUsd)}`
+                      `${activity.title} | ${activity.year} ${activity.quarter} | ${activity.location} | ${formatMoney(activity.actualUsd)}`
                   ),
-                ];
-                triggerBlobDownload(createSimplePdf(reportLines), "admin-quarterly-brief.pdf");
+                });
+                triggerBlobDownload(reportBlob, "admin-quarterly-brief.pdf");
               }}
             >
               <FileDown />
