@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Download, FileDown } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type Sector = "Education" | "Health" | "ICT" | "YE&L" | "Disability" | "Climate Change";
@@ -16,7 +18,10 @@ type Activity = {
   plannedUsd: number;
   actualUsd: number;
   reached: number;
-  status: "On Track" | "At Risk" | "Complete";
+  status: "Scheduled" | "In Progress" | "Completed" | "At Risk";
+  scheduleLabel: string;
+  scheduledAt: string;
+  completedAt?: string;
 };
 
 const TOTAL_FUNDING_USD = 1_000_000;
@@ -35,6 +40,7 @@ function randomBetween(rng: () => number, min: number, max: number) {
 
 function generateActivities(seed = 2026): Activity[] {
   const rng = seededRandom(seed);
+  const now = new Date();
   const titles = [
     "School fee disbursement",
     "Ward planning meeting",
@@ -50,7 +56,34 @@ function generateActivities(seed = 2026): Activity[] {
 
   return Array.from({ length: 16 }, (_, idx) => {
     const planned = randomBetween(rng, 14_000, 75_000);
-    const actual = randomBetween(rng, Math.round(planned * 0.55), planned);
+    const actual = randomBetween(rng, Math.round(planned * 0.1), Math.round(planned * 0.9));
+    const lifecycle = idx % 4; // deterministic split for demo
+    const scheduledAt = new Date(now);
+    let scheduleLabel = "Next month";
+    let status: Activity["status"] = "Scheduled";
+    let completedAt: string | undefined;
+
+    if (lifecycle === 0) {
+      scheduledAt.setDate(now.getDate() + randomBetween(rng, 2, 7));
+      scheduleLabel = "Next week";
+      status = "Scheduled";
+    } else if (lifecycle === 1) {
+      scheduledAt.setDate(now.getDate() + randomBetween(rng, 12, 28));
+      scheduleLabel = "Next month";
+      status = "Scheduled";
+    } else if (lifecycle === 2) {
+      scheduledAt.setHours(now.getHours() - randomBetween(rng, 1, 3));
+      scheduleLabel = "Today";
+      status = "In Progress";
+    } else {
+      scheduledAt.setDate(now.getDate() - randomBetween(rng, 1, 4));
+      scheduleLabel = "Completed recently";
+      status = "Completed";
+      const completedDate = new Date(now);
+      completedDate.setHours(now.getHours() - randomBetween(rng, 1, 8));
+      completedAt = completedDate.toISOString();
+    }
+
     return {
       id: `ACT-${String(idx + 1).padStart(3, "0")}`,
       quarter: quarters[idx % quarters.length],
@@ -59,9 +92,23 @@ function generateActivities(seed = 2026): Activity[] {
       plannedUsd: planned,
       actualUsd: actual,
       reached: randomBetween(rng, 20, 190),
-      status: actual >= planned * 0.9 ? "Complete" : actual >= planned * 0.7 ? "On Track" : "At Risk",
+      status,
+      scheduleLabel,
+      scheduledAt: scheduledAt.toISOString(),
+      completedAt,
     };
   });
+}
+
+function timeFromNow(value: string) {
+  const target = new Date(value).getTime();
+  const now = Date.now();
+  const diff = target - now;
+  const hours = Math.round(Math.abs(diff) / (1000 * 60 * 60));
+  if (diff > 0) {
+    return hours < 24 ? `in ${hours}h` : `in ${Math.round(hours / 24)} days`;
+  }
+  return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)} days ago`;
 }
 
 function triggerDownload(content: string, filename: string, mimeType: string) {
@@ -77,11 +124,51 @@ function triggerDownload(content: string, filename: string, mimeType: string) {
 }
 
 export default function AdminFinancePage() {
-  const [activities] = useState<Activity[]>(() => generateActivities());
+  const [activities, setActivities] = useState<Activity[]>(() => generateActivities());
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const queryQuarter = searchParams.get("quarter");
+  const selectedQuarter: "all" | "Q1" | "Q2" | "Q3" | "Q4" =
+    queryQuarter === "Q1" || queryQuarter === "Q2" || queryQuarter === "Q3" || queryQuarter === "Q4"
+      ? queryQuarter
+      : "all";
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setActivities((previous) =>
+        previous.map((activity, idx) => {
+          if (activity.status === "Completed") return activity;
+          const increment = ((idx % 4) + 1) * 140;
+          const nextActual = Math.min(activity.plannedUsd, activity.actualUsd + increment);
+          const nextReached = activity.reached + Math.round(increment / 250);
+          const progressedToComplete = nextActual >= activity.plannedUsd;
+          const nextStatus: Activity["status"] =
+            progressedToComplete ? "Completed" : nextActual >= activity.plannedUsd * 0.7 ? "In Progress" : "At Risk";
+          return {
+            ...activity,
+            actualUsd: nextActual,
+            reached: nextReached,
+            status: nextStatus,
+            scheduleLabel: progressedToComplete ? "Completed recently" : activity.scheduleLabel,
+            completedAt: progressedToComplete ? new Date().toISOString() : activity.completedAt,
+          };
+        })
+      );
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const filteredActivities = useMemo(() => {
+    return selectedQuarter === "all"
+      ? activities
+      : activities.filter((activity) => activity.quarter === selectedQuarter);
+  }, [activities, selectedQuarter]);
+
   const summary = useMemo(() => {
-    const planned = activities.reduce((sum, item) => sum + item.plannedUsd, 0);
-    const actual = activities.reduce((sum, item) => sum + item.actualUsd, 0);
-    const reached = activities.reduce((sum, item) => sum + item.reached, 0);
+    const planned = filteredActivities.reduce((sum, item) => sum + item.plannedUsd, 0);
+    const actual = filteredActivities.reduce((sum, item) => sum + item.actualUsd, 0);
+    const reached = filteredActivities.reduce((sum, item) => sum + item.reached, 0);
     return {
       planned,
       actual,
@@ -89,7 +176,7 @@ export default function AdminFinancePage() {
       utilization: (actual / TOTAL_FUNDING_USD) * 100,
       runway: Math.max(TOTAL_FUNDING_USD - actual, 0),
     };
-  }, [activities]);
+  }, [filteredActivities]);
 
   const byQuarter = useMemo(() => {
     return (["Q1", "Q2", "Q3", "Q4"] as const).map((quarter) => {
@@ -110,13 +197,48 @@ export default function AdminFinancePage() {
       <section className="space-y-3 rounded-xl border border-primary/20 bg-background/70 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="text-3xl font-semibold tracking-tight">Admin Real-Time Funding Intelligence</h1>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={selectedQuarter}
+              onValueChange={(value) => {
+                const selected = value === "Q1" || value === "Q2" || value === "Q3" || value === "Q4" ? value : "all";
+                const params = new URLSearchParams(searchParams.toString());
+                if (selected === "all") {
+                  params.delete("quarter");
+                } else {
+                  params.set("quarter", selected);
+                }
+                const query = params.toString();
+                router.replace(query ? `${pathname}?${query}` : pathname);
+              }}
+            >
+              <SelectTrigger className="w-[130px]">
+                <SelectValue placeholder="Quarter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="Q1">Q1</SelectItem>
+                <SelectItem value="Q2">Q2</SelectItem>
+                <SelectItem value="Q3">Q3</SelectItem>
+                <SelectItem value="Q4">Q4</SelectItem>
+              </SelectContent>
+            </Select>
             <Button
               variant="outline"
               onClick={() => {
-                const header = "Activity,Quarter,Sector,Planned USD,Actual USD,Reached,Status";
-                const rows = activities.map((a) =>
-                  [a.title, a.quarter, a.sector, a.plannedUsd, a.actualUsd, a.reached, a.status].join(",")
+                const header = "Activity,Quarter,Sector,Planned USD,Actual USD,Reached,Status,Scheduled,Completed";
+                const rows = filteredActivities.map((a) =>
+                  [
+                    a.title,
+                    a.quarter,
+                    a.sector,
+                    a.plannedUsd,
+                    a.actualUsd,
+                    a.reached,
+                    a.status,
+                    a.scheduledAt,
+                    a.completedAt ?? "",
+                  ].join(",")
                 );
                 triggerDownload([header, ...rows].join("\n"), "admin-funding-report.csv", "text/csv");
               }}
@@ -166,6 +288,7 @@ export default function AdminFinancePage() {
           <TableHeader>
             <TableRow>
               <TableHead>Activity</TableHead>
+              <TableHead>When</TableHead>
               <TableHead>Quarter</TableHead>
               <TableHead>Sector</TableHead>
               <TableHead>Planned</TableHead>
@@ -175,9 +298,17 @@ export default function AdminFinancePage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {activities.map((a) => (
+            {filteredActivities.map((a) => (
               <TableRow key={a.id}>
                 <TableCell>{a.title}</TableCell>
+                <TableCell>
+                  <p>{a.scheduleLabel}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {a.status === "Completed" && a.completedAt
+                      ? `Completed ${timeFromNow(a.completedAt)}`
+                      : `Scheduled ${timeFromNow(a.scheduledAt)}`}
+                  </p>
+                </TableCell>
                 <TableCell>{a.quarter}</TableCell>
                 <TableCell>{a.sector}</TableCell>
                 <TableCell>${a.plannedUsd.toLocaleString()}</TableCell>
