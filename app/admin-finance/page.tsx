@@ -31,6 +31,19 @@ type Activity = {
 };
 
 const TOTAL_FUNDING_USD = 1_000_000;
+const QUARTERS = ["Q1", "Q2", "Q3", "Q4"] as const;
+
+function quarterToIndex(quarter: "Q1" | "Q2" | "Q3" | "Q4") {
+  return QUARTERS.indexOf(quarter);
+}
+
+function getCurrentQuarter(now: Date): "Q1" | "Q2" | "Q3" | "Q4" {
+  const month = now.getMonth();
+  if (month <= 2) return "Q1";
+  if (month <= 5) return "Q2";
+  if (month <= 8) return "Q3";
+  return "Q4";
+}
 
 function seededRandom(seed: number): () => number {
   let current = seed;
@@ -47,6 +60,8 @@ function randomBetween(rng: () => number, min: number, max: number) {
 function generateActivities(seed = 2026): Activity[] {
   const rng = seededRandom(seed);
   const now = new Date();
+  const currentQuarter = getCurrentQuarter(now);
+  const currentQuarterIndex = quarterToIndex(currentQuarter);
   const titles = [
     "School fee disbursement",
     "Ward planning meeting",
@@ -71,15 +86,38 @@ function generateActivities(seed = 2026): Activity[] {
   ];
 
   return Array.from({ length: 16 }, (_, idx) => {
+    const quarter = quarters[idx % quarters.length];
+    const quarterIndex = quarterToIndex(quarter);
+    const quarterStartMonth = quarterIndex * 3;
+    const scheduledAt = new Date(
+      now.getFullYear(),
+      quarterStartMonth + randomBetween(rng, 0, 2),
+      randomBetween(rng, 2, 26),
+      randomBetween(rng, 8, 16),
+      randomBetween(rng, 0, 59)
+    );
     const planned = randomBetween(rng, 14_000, 75_000);
-    const actual = randomBetween(rng, Math.round(planned * 0.1), Math.round(planned * 0.9));
+    let actual = randomBetween(rng, Math.round(planned * 0.1), Math.round(planned * 0.9));
     const lifecycle = idx % 4; // deterministic split for demo
-    const scheduledAt = new Date(now);
     let scheduleLabel = "Next month";
     let status: Activity["status"] = "Scheduled";
     let completedAt: string | undefined;
 
-    if (lifecycle === 0) {
+    if (quarterIndex < currentQuarterIndex) {
+      // Closed quarters should look final and immutable.
+      actual = randomBetween(rng, Math.round(planned * 0.82), planned);
+      status = "Completed";
+      scheduleLabel = "Closed quarter";
+      const completedDate = new Date(scheduledAt);
+      completedDate.setDate(scheduledAt.getDate() + randomBetween(rng, 0, 5));
+      completedDate.setHours(randomBetween(rng, 12, 18));
+      completedAt = completedDate.toISOString();
+    } else if (quarterIndex > currentQuarterIndex) {
+      // Future quarter plans stay scheduled with early commitments only.
+      actual = randomBetween(rng, Math.round(planned * 0.04), Math.round(planned * 0.22));
+      status = "Scheduled";
+      scheduleLabel = scheduledAt.getMonth() === now.getMonth() ? "Later this month" : "Upcoming quarter";
+    } else if (lifecycle === 0) {
       scheduledAt.setDate(now.getDate() + randomBetween(rng, 2, 7));
       scheduleLabel = "Next week";
       status = "Scheduled";
@@ -102,7 +140,7 @@ function generateActivities(seed = 2026): Activity[] {
 
     return {
       id: `ACT-${String(idx + 1).padStart(3, "0")}`,
-      quarter: quarters[idx % quarters.length],
+      quarter,
       sector: sectors[idx % sectors.length],
       cadence: cadences[idx % cadences.length],
       organizer: organizers[idx % organizers.length],
@@ -133,8 +171,7 @@ function timeFromNow(value: string) {
   return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)} days ago`;
 }
 
-function triggerDownload(content: string, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType });
+function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -143,6 +180,49 @@ function triggerDownload(content: string, filename: string, mimeType: string) {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+function triggerDownload(content: string, filename: string, mimeType: string) {
+  triggerBlobDownload(new Blob([content], { type: mimeType }), filename);
+}
+
+function escapePdfText(text: string) {
+  return text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+}
+
+function createSimplePdf(lines: string[]) {
+  const header = "%PDF-1.4\n";
+  const textLines = lines.map((line, idx) => {
+    const y = 770 - idx * 18;
+    return `BT /F1 11 Tf 50 ${y} Td (${escapePdfText(line)}) Tj ET`;
+  });
+  const streamContent = `${textLines.join("\n")}\n`;
+
+  const objects = [
+    "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+    "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n",
+    "4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n",
+    `5 0 obj\n<< /Length ${streamContent.length} >>\nstream\n${streamContent}endstream\nendobj\n`,
+  ];
+
+  let body = "";
+  const offsets = [0];
+  let cursor = header.length;
+  for (const obj of objects) {
+    offsets.push(cursor);
+    body += obj;
+    cursor += obj.length;
+  }
+  const xrefOffset = cursor;
+  const xref = [
+    "xref",
+    `0 ${objects.length + 1}`,
+    "0000000000 65535 f ",
+    ...offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n `),
+  ].join("\n");
+  const trailer = `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new Blob([header, body, `${xref}\n`, trailer], { type: "application/pdf" });
 }
 
 function formatMoney(value: number) {
@@ -162,9 +242,11 @@ export default function AdminFinancePage() {
   });
 
   useEffect(() => {
+    const currentQuarter = getCurrentQuarter(new Date());
     const timer = window.setInterval(() => {
       setActivities((previous) =>
         previous.map((activity, idx) => {
+          if (activity.quarter !== currentQuarter) return activity;
           if (activity.status === "Completed") return activity;
           const increment = ((idx % 4) + 1) * 140;
           const nextActual = Math.min(activity.plannedUsd, activity.actualUsd + increment);
@@ -215,7 +297,7 @@ export default function AdminFinancePage() {
   }, [filteredActivities]);
 
   const byQuarter = useMemo(() => {
-    return (["Q1", "Q2", "Q3", "Q4"] as const).map((quarter) => {
+    return QUARTERS.map((quarter) => {
       const rows = activities.filter((item) => item.quarter === quarter);
       const planned = rows.reduce((sum, item) => sum + item.plannedUsd, 0);
       const actual = rows.reduce((sum, item) => sum + item.actualUsd, 0);
@@ -224,36 +306,21 @@ export default function AdminFinancePage() {
   }, [activities]);
 
   const trendPoints = useMemo(() => {
-    const now = new Date();
-    const months = Array.from({ length: 6 }, (_, idx) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - (5 - idx), 1);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      return {
-        key,
-        label: d.toLocaleString("en-US", { month: "short" }),
-        planned: 0,
-        actual: 0,
-      };
-    });
-    const map = new Map(months.map((item) => [item.key, item]));
-    filteredActivities.forEach((activity) => {
-      const date = new Date(activity.scheduledAt);
-      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-      const month = map.get(key);
-      if (!month) return;
-      month.planned += activity.plannedUsd;
-      month.actual += activity.actualUsd;
-    });
-    return months;
-  }, [filteredActivities]);
+    return byQuarter.map((item) => ({
+      key: item.quarter,
+      label: item.quarter,
+      planned: item.planned,
+      actual: item.actual,
+    }));
+  }, [byQuarter]);
 
   const trendPolyline = useMemo(() => {
     const values = trendPoints.map((p) => p.actual);
     const max = Math.max(...values, 1);
     return trendPoints
       .map((point, idx) => {
-        const x = (idx / Math.max(trendPoints.length - 1, 1)) * 100;
-        const y = 100 - (point.actual / max) * 100;
+        const x = 8 + (idx / Math.max(trendPoints.length - 1, 1)) * 84;
+        const y = 92 - (point.actual / max) * 78;
         return `${x},${y}`;
       })
       .join(" ");
@@ -352,13 +419,26 @@ export default function AdminFinancePage() {
             </Button>
             <Button
               variant="outline"
-              onClick={() =>
-                triggerDownload(
-                  `Funding Utilized: $${summary.actual.toLocaleString()} (${summary.utilization.toFixed(1)}%)`,
-                  "admin-quarterly-brief.pdf",
-                  "application/pdf"
-                )
-              }
+              onClick={() => {
+                const reportLines = [
+                  "AFRICII ADMIN FUNDING BRIEF",
+                  `Generated: ${new Date().toLocaleString()}`,
+                  `Quarter filter: ${selectedQuarter.toUpperCase()}`,
+                  "",
+                  `Funding envelope: ${formatMoney(TOTAL_FUNDING_USD)}`,
+                  `Planned: ${formatMoney(summary.planned)}`,
+                  `Utilized: ${formatMoney(summary.actual)} (${summary.utilization.toFixed(1)}%)`,
+                  `Runway: ${formatMoney(summary.runway)}`,
+                  `Attendance reached: ${summary.reached.toLocaleString()}`,
+                  "",
+                  "Top activities:",
+                  ...filteredActivities.slice(0, 6).map(
+                    (activity) =>
+                      `- ${activity.title} | ${activity.quarter} | ${activity.location} | ${formatMoney(activity.actualUsd)}`
+                  ),
+                ];
+                triggerBlobDownload(createSimplePdf(reportLines), "admin-quarterly-brief.pdf");
+              }}
             >
               <FileDown />
               PDF
@@ -393,7 +473,7 @@ export default function AdminFinancePage() {
 
       <section className="grid gap-4 xl:grid-cols-3">
         <article className="rounded-xl border border-primary/20 bg-background/70 p-4">
-          <p className="text-sm text-muted-foreground">Finance trend (6 months)</p>
+          <p className="text-sm text-muted-foreground">Finance trend (by quarter)</p>
           <p className="mt-1 text-2xl font-semibold">{formatMoney(summary.actual)}</p>
           <p className="text-xs text-muted-foreground">Utilized in selected window</p>
           <div className="mt-4 rounded-lg border border-primary/15 bg-gradient-to-b from-primary/5 to-transparent p-3">
@@ -406,14 +486,15 @@ export default function AdminFinancePage() {
                 strokeLinejoin="round"
                 points={trendPolyline}
               />
+              <line x1="8" y1="92" x2="92" y2="92" stroke="hsl(var(--border))" strokeWidth="1" />
               {trendPoints.map((point, idx) => {
                 const max = Math.max(...trendPoints.map((p) => p.actual), 1);
-                const x = (idx / Math.max(trendPoints.length - 1, 1)) * 100;
-                const y = 100 - (point.actual / max) * 100;
+                const x = 8 + (idx / Math.max(trendPoints.length - 1, 1)) * 84;
+                const y = 92 - (point.actual / max) * 78;
                 return <circle key={point.key} cx={x} cy={y} r="1.8" fill="hsl(var(--primary))" />;
               })}
             </svg>
-            <div className="mt-2 grid grid-cols-6 text-[11px] text-muted-foreground">
+            <div className="mt-2 grid grid-cols-4 text-[11px] text-muted-foreground">
               {trendPoints.map((point) => (
                 <span key={point.key}>{point.label}</span>
               ))}
