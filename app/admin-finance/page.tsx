@@ -38,6 +38,12 @@ const PERIODS = [
   { year: 2025 as const, quarter: "Q3" as const },
   { year: 2026 as const, quarter: "Q1" as const },
 ];
+const PERIOD_ENVELOPES: Record<"2025-Q1" | "2025-Q2" | "2025-Q3" | "2026-Q1", number> = {
+  "2025-Q1": 180_000,
+  "2025-Q2": 210_000,
+  "2025-Q3": 240_000,
+  "2026-Q1": 370_000,
+};
 
 function quarterToIndex(quarter: "Q1" | "Q2" | "Q3" | "Q4") {
   return (["Q1", "Q2", "Q3", "Q4"] as const).indexOf(quarter);
@@ -234,6 +240,12 @@ function formatMoney(value: number) {
   return `$${Math.round(value).toLocaleString()}`;
 }
 
+function formatPeriod(period: "all" | "2025-Q1" | "2025-Q2" | "2025-Q3" | "2026-Q1") {
+  if (period === "all") return "All periods";
+  const [year, quarter] = period.split("-") as ["2025" | "2026", "Q1" | "Q2" | "Q3" | "Q4"];
+  return `${year} ${quarter}`;
+}
+
 export default function AdminFinancePage() {
   const [activities, setActivities] = useState<Activity[]>(() => generateActivities());
   const router = useRouter();
@@ -281,6 +293,13 @@ export default function AdminFinancePage() {
     return activities.filter((activity) => String(activity.year) === year && activity.quarter === quarter);
   }, [activities, selectedPeriod]);
 
+  const selectedPeriodLabel = useMemo(() => formatPeriod(selectedPeriod), [selectedPeriod]);
+
+  const selectedEnvelope = useMemo(() => {
+    if (selectedPeriod === "all") return TOTAL_FUNDING_USD;
+    return PERIOD_ENVELOPES[selectedPeriod];
+  }, [selectedPeriod]);
+
   const summary = useMemo(() => {
     const planned = filteredActivities.reduce((sum, item) => sum + item.plannedUsd, 0);
     const actual = filteredActivities.reduce((sum, item) => sum + item.actualUsd, 0);
@@ -289,10 +308,10 @@ export default function AdminFinancePage() {
       planned,
       actual,
       reached,
-      utilization: (actual / TOTAL_FUNDING_USD) * 100,
-      runway: Math.max(TOTAL_FUNDING_USD - actual, 0),
+      utilization: selectedEnvelope ? (actual / selectedEnvelope) * 100 : 0,
+      runway: Math.max(selectedEnvelope - actual, 0),
     };
-  }, [filteredActivities]);
+  }, [filteredActivities, selectedEnvelope]);
 
   const cadenceCounts = useMemo(() => {
     return {
@@ -307,37 +326,33 @@ export default function AdminFinancePage() {
       const rows = activities.filter((item) => item.quarter === period.quarter && item.year === period.year);
       const planned = rows.reduce((sum, item) => sum + item.plannedUsd, 0);
       const actual = rows.reduce((sum, item) => sum + item.actualUsd, 0);
+      const key = `${period.year}-${period.quarter}` as "2025-Q1" | "2025-Q2" | "2025-Q3" | "2026-Q1";
+      const envelope = PERIOD_ENVELOPES[key];
       return {
+        key,
         period: `${period.year} ${period.quarter}`,
         planned,
         actual,
-        utilization: planned ? (actual / planned) * 100 : 0,
+        utilization: envelope ? (actual / envelope) * 100 : 0,
       };
     });
   }, [activities]);
 
+  const graphPeriods = useMemo(() => {
+    if (selectedPeriod === "all") return byQuarter;
+    return byQuarter.filter((item) => item.key === selectedPeriod);
+  }, [byQuarter, selectedPeriod]);
+
   const trendPoints = useMemo(() => {
-    return byQuarter.map((item) => ({
+    const maxActual = Math.max(...graphPeriods.map((item) => item.actual), 1);
+    return graphPeriods.map((item) => ({
       key: item.period,
       label: item.period,
       planned: item.planned,
       actual: item.actual,
+      height: Math.max((item.actual / maxActual) * 100, 8),
     }));
-  }, [byQuarter]);
-
-  const trendPolyline = useMemo(() => {
-    const values = trendPoints.map((p) => p.actual);
-    const max = Math.max(...values, 0);
-    const ratioBase = max === 0 ? 0.2 : 1;
-    return trendPoints
-      .map((point, idx) => {
-        const x = 8 + (idx / Math.max(trendPoints.length - 1, 1)) * 84;
-        const ratio = max === 0 ? ratioBase : point.actual / max;
-        const y = 92 - ratio * 78;
-        return `${x},${y}`;
-      })
-      .join(" ");
-  }, [trendPoints]);
+  }, [graphPeriods]);
 
   const bySector = useMemo(() => {
     const sectors: Sector[] = ["Education", "Health", "ICT", "YE&L", "Disability", "Climate Change"];
@@ -463,7 +478,7 @@ export default function AdminFinancePage() {
           </div>
         </div>
         <div className="grid gap-3 md:grid-cols-4">
-          <p className="rounded-lg border p-3 text-sm">Envelope: ${TOTAL_FUNDING_USD.toLocaleString()}</p>
+          <p className="rounded-lg border p-3 text-sm">Envelope ({selectedPeriodLabel}): {formatMoney(selectedEnvelope)}</p>
           <p className="rounded-lg border p-3 text-sm">Utilized: ${summary.actual.toLocaleString()}</p>
           <p className="rounded-lg border p-3 text-sm">Runway: ${summary.runway.toLocaleString()}</p>
           <p className="rounded-lg border p-3 text-sm">Reached: {summary.reached.toLocaleString()}</p>
@@ -474,8 +489,8 @@ export default function AdminFinancePage() {
           <p className="rounded-lg border p-3 text-sm">Monthly activities: {cadenceCounts.Monthly}</p>
         </div>
         <div className="space-y-2">
-          {byQuarter.map((item) => (
-            <div key={item.period}>
+          {graphPeriods.map((item) => (
+            <div key={item.key}>
               <div className="mb-1 flex justify-between text-sm">
                 <span>{item.period}</span>
                 <span className="text-muted-foreground">{item.utilization.toFixed(1)}%</span>
@@ -490,38 +505,35 @@ export default function AdminFinancePage() {
 
       <section className="grid gap-4 xl:grid-cols-3">
         <article className="rounded-xl border border-primary/20 bg-background/70 p-4">
-          <p className="text-sm text-muted-foreground">Finance trend (by quarter)</p>
+          <p className="text-sm text-muted-foreground">Finance trend (quarter bars) - {selectedPeriodLabel}</p>
           <p className="mt-1 text-2xl font-semibold">{formatMoney(summary.actual)}</p>
           <p className="text-xs text-muted-foreground">Utilized in selected window</p>
           <div className="mt-4 rounded-lg border border-primary/15 bg-gradient-to-b from-primary/5 to-transparent p-3">
-            <svg viewBox="0 0 100 100" className="h-28 w-full">
-              <line x1="8" y1="92" x2="92" y2="92" stroke="hsl(var(--border))" strokeWidth="1" />
-              <polyline
-                fill="none"
-                stroke="hsl(var(--primary))"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                points={trendPolyline}
-              />
-              {trendPoints.map((point, idx) => {
-                const max = Math.max(...trendPoints.map((p) => p.actual), 0);
-                const x = 8 + (idx / Math.max(trendPoints.length - 1, 1)) * 84;
-                const ratio = max === 0 ? 0.2 : point.actual / max;
-                const y = 92 - ratio * 78;
-                return <circle key={point.key} cx={x} cy={y} r="1.8" fill="hsl(var(--primary))" />;
-              })}
-            </svg>
-            <div className="mt-2 grid grid-cols-4 text-[11px] text-muted-foreground">
+            <div className="flex h-36 items-end gap-3">
               {trendPoints.map((point) => (
-                <span key={point.key}>{point.label}</span>
+                <div key={point.key} className="flex flex-1 flex-col items-center gap-2">
+                  <div className="relative flex h-28 w-full items-end justify-center rounded-md bg-muted/40 px-1">
+                    <div
+                      className="w-full rounded-md bg-gradient-to-t from-primary to-primary/60 transition-all"
+                      style={{ height: `${point.height}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">{point.label}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+              {trendPoints.map((point) => (
+                <p key={`${point.key}-meta`} className="truncate">
+                  {point.label}: {formatMoney(point.actual)}
+                </p>
               ))}
             </div>
           </div>
         </article>
 
         <article className="rounded-xl border border-primary/20 bg-background/70 p-4">
-          <p className="text-sm text-muted-foreground">Sector budget comparison</p>
+          <p className="text-sm text-muted-foreground">Sector budget comparison - {selectedPeriodLabel}</p>
           <p className="mt-1 text-2xl font-semibold">{formatMoney(summary.planned)}</p>
           <p className="text-xs text-muted-foreground">Planned budget for filtered activities</p>
           <div className="mt-4 space-y-2">
@@ -542,7 +554,7 @@ export default function AdminFinancePage() {
         </article>
 
         <article className="rounded-xl border border-primary/20 bg-background/70 p-4">
-          <p className="text-sm text-muted-foreground">Utilization performance</p>
+          <p className="text-sm text-muted-foreground">Utilization performance - {selectedPeriodLabel}</p>
           <div className="mt-4 flex items-center gap-5">
             <svg viewBox="0 0 120 120" className="h-28 w-28">
               <circle cx="60" cy="60" r="48" fill="none" stroke="hsl(var(--muted))" strokeWidth="10" />
