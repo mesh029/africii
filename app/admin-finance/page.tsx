@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Download, FileDown } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,10 +14,16 @@ type Activity = {
   id: string;
   quarter: "Q1" | "Q2" | "Q3" | "Q4";
   sector: Sector;
+  cadence: "Daily" | "Weekly" | "Monthly";
+  organizer: string;
+  organization: string;
+  location: string;
   title: string;
   plannedUsd: number;
   actualUsd: number;
-  reached: number;
+  attendance: number;
+  successCriteria: string;
+  successRate: number;
   status: "Scheduled" | "In Progress" | "Completed" | "At Risk";
   scheduleLabel: string;
   scheduledAt: string;
@@ -53,6 +59,16 @@ function generateActivities(seed = 2026): Activity[] {
   ];
   const sectors: Sector[] = ["Education", "Health", "ICT", "YE&L", "Disability", "Climate Change"];
   const quarters: Array<"Q1" | "Q2" | "Q3" | "Q4"> = ["Q1", "Q1", "Q2", "Q2", "Q3", "Q3", "Q4", "Q4"];
+  const cadences: Array<"Daily" | "Weekly" | "Monthly"> = ["Daily", "Weekly", "Monthly"];
+  const organizers = ["Bruno", "Akinyi", "Otieno", "Faith", "Omondi", "Atieno"];
+  const organizations = ["Africii Kenya", "Nyalenda CBO Network", "Kisumu Education Desk", "Health Link Trust"];
+  const locations = ["Nyalenda A", "Nyalenda B", "Kondele", "Manyatta B", "Kisumu Central", "Kajulu"];
+  const successCriteria = [
+    "Target attendance achieved",
+    "Budget variance under 10%",
+    "Follow-up action closure",
+    "Beneficiary satisfaction above 80%",
+  ];
 
   return Array.from({ length: 16 }, (_, idx) => {
     const planned = randomBetween(rng, 14_000, 75_000);
@@ -88,10 +104,16 @@ function generateActivities(seed = 2026): Activity[] {
       id: `ACT-${String(idx + 1).padStart(3, "0")}`,
       quarter: quarters[idx % quarters.length],
       sector: sectors[idx % sectors.length],
+      cadence: cadences[idx % cadences.length],
+      organizer: organizers[idx % organizers.length],
+      organization: organizations[idx % organizations.length],
+      location: locations[idx % locations.length],
       title: titles[idx % titles.length],
       plannedUsd: planned,
       actualUsd: actual,
-      reached: randomBetween(rng, 20, 190),
+      attendance: randomBetween(rng, 20, 220),
+      successCriteria: successCriteria[idx % successCriteria.length],
+      successRate: randomBetween(rng, 55, 96),
       status,
       scheduleLabel,
       scheduledAt: scheduledAt.toISOString(),
@@ -123,16 +145,21 @@ function triggerDownload(content: string, filename: string, mimeType: string) {
   URL.revokeObjectURL(url);
 }
 
+function formatMoney(value: number) {
+  return `$${Math.round(value).toLocaleString()}`;
+}
+
 export default function AdminFinancePage() {
   const [activities, setActivities] = useState<Activity[]>(() => generateActivities());
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const queryQuarter = searchParams.get("quarter");
-  const selectedQuarter: "all" | "Q1" | "Q2" | "Q3" | "Q4" =
-    queryQuarter === "Q1" || queryQuarter === "Q2" || queryQuarter === "Q3" || queryQuarter === "Q4"
-      ? queryQuarter
+  const [selectedQuarter, setSelectedQuarter] = useState<"all" | "Q1" | "Q2" | "Q3" | "Q4">(() => {
+    if (typeof window === "undefined") return "all";
+    const quarter = new URLSearchParams(window.location.search).get("quarter");
+    return quarter === "Q1" || quarter === "Q2" || quarter === "Q3" || quarter === "Q4"
+      ? quarter
       : "all";
+  });
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -141,14 +168,15 @@ export default function AdminFinancePage() {
           if (activity.status === "Completed") return activity;
           const increment = ((idx % 4) + 1) * 140;
           const nextActual = Math.min(activity.plannedUsd, activity.actualUsd + increment);
-          const nextReached = activity.reached + Math.round(increment / 250);
+          const nextAttendance = activity.attendance + Math.round(increment / 300);
           const progressedToComplete = nextActual >= activity.plannedUsd;
           const nextStatus: Activity["status"] =
             progressedToComplete ? "Completed" : nextActual >= activity.plannedUsd * 0.7 ? "In Progress" : "At Risk";
           return {
             ...activity,
             actualUsd: nextActual,
-            reached: nextReached,
+            attendance: nextAttendance,
+            successRate: Math.min(100, activity.successRate + (progressedToComplete ? 3 : 1)),
             status: nextStatus,
             scheduleLabel: progressedToComplete ? "Completed recently" : activity.scheduleLabel,
             completedAt: progressedToComplete ? new Date().toISOString() : activity.completedAt,
@@ -168,13 +196,21 @@ export default function AdminFinancePage() {
   const summary = useMemo(() => {
     const planned = filteredActivities.reduce((sum, item) => sum + item.plannedUsd, 0);
     const actual = filteredActivities.reduce((sum, item) => sum + item.actualUsd, 0);
-    const reached = filteredActivities.reduce((sum, item) => sum + item.reached, 0);
+    const reached = filteredActivities.reduce((sum, item) => sum + item.attendance, 0);
     return {
       planned,
       actual,
       reached,
       utilization: (actual / TOTAL_FUNDING_USD) * 100,
       runway: Math.max(TOTAL_FUNDING_USD - actual, 0),
+    };
+  }, [filteredActivities]);
+
+  const cadenceCounts = useMemo(() => {
+    return {
+      Daily: filteredActivities.filter((item) => item.cadence === "Daily").length,
+      Weekly: filteredActivities.filter((item) => item.cadence === "Weekly").length,
+      Monthly: filteredActivities.filter((item) => item.cadence === "Monthly").length,
     };
   }, [filteredActivities]);
 
@@ -186,6 +222,66 @@ export default function AdminFinancePage() {
       return { quarter, planned, actual, utilization: planned ? (actual / planned) * 100 : 0 };
     });
   }, [activities]);
+
+  const trendPoints = useMemo(() => {
+    const now = new Date();
+    const months = Array.from({ length: 6 }, (_, idx) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (5 - idx), 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      return {
+        key,
+        label: d.toLocaleString("en-US", { month: "short" }),
+        planned: 0,
+        actual: 0,
+      };
+    });
+    const map = new Map(months.map((item) => [item.key, item]));
+    filteredActivities.forEach((activity) => {
+      const date = new Date(activity.scheduledAt);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      const month = map.get(key);
+      if (!month) return;
+      month.planned += activity.plannedUsd;
+      month.actual += activity.actualUsd;
+    });
+    return months;
+  }, [filteredActivities]);
+
+  const trendPolyline = useMemo(() => {
+    const values = trendPoints.map((p) => p.actual);
+    const max = Math.max(...values, 1);
+    return trendPoints
+      .map((point, idx) => {
+        const x = (idx / Math.max(trendPoints.length - 1, 1)) * 100;
+        const y = 100 - (point.actual / max) * 100;
+        return `${x},${y}`;
+      })
+      .join(" ");
+  }, [trendPoints]);
+
+  const bySector = useMemo(() => {
+    const sectors: Sector[] = ["Education", "Health", "ICT", "YE&L", "Disability", "Climate Change"];
+    const stats = sectors.map((sector) => {
+      const rows = filteredActivities.filter((item) => item.sector === sector);
+      const planned = rows.reduce((sum, item) => sum + item.plannedUsd, 0);
+      const actual = rows.reduce((sum, item) => sum + item.actualUsd, 0);
+      return {
+        sector,
+        planned,
+        actual,
+        utilization: planned ? (actual / planned) * 100 : 0,
+      };
+    });
+    const maxActual = Math.max(...stats.map((item) => item.actual), 1);
+    return stats.map((item) => ({ ...item, width: (item.actual / maxActual) * 100 }));
+  }, [filteredActivities]);
+
+  const performanceGauge = useMemo(() => {
+    const circumference = 2 * Math.PI * 48;
+    const utilization = Math.min(Math.max(summary.utilization, 0), 100);
+    const offset = circumference * (1 - utilization / 100);
+    return { circumference, offset, utilization };
+  }, [summary.utilization]);
 
   return (
     <main className="mx-auto w-full space-y-6 px-4 py-8 md:px-8 xl:px-12 2xl:px-16">
@@ -202,7 +298,7 @@ export default function AdminFinancePage() {
               value={selectedQuarter}
               onValueChange={(value) => {
                 const selected = value === "Q1" || value === "Q2" || value === "Q3" || value === "Q4" ? value : "all";
-                const params = new URLSearchParams(searchParams.toString());
+                const params = new URLSearchParams(window.location.search);
                 if (selected === "all") {
                   params.delete("quarter");
                 } else {
@@ -210,6 +306,7 @@ export default function AdminFinancePage() {
                 }
                 const query = params.toString();
                 router.replace(query ? `${pathname}?${query}` : pathname);
+                setSelectedQuarter(selected);
               }}
             >
               <SelectTrigger className="w-[130px]">
@@ -226,15 +323,22 @@ export default function AdminFinancePage() {
             <Button
               variant="outline"
               onClick={() => {
-                const header = "Activity,Quarter,Sector,Planned USD,Actual USD,Reached,Status,Scheduled,Completed";
+                const header =
+                  "Activity,Quarter,Cadence,Sector,Organizer,Organization,Location,Planned USD,Actual USD,Attendance,Success Criteria,Success Rate,Status,Scheduled,Completed";
                 const rows = filteredActivities.map((a) =>
                   [
                     a.title,
                     a.quarter,
+                    a.cadence,
                     a.sector,
+                    a.organizer,
+                    a.organization,
+                    a.location,
                     a.plannedUsd,
                     a.actualUsd,
-                    a.reached,
+                    a.attendance,
+                    a.successCriteria,
+                    a.successRate,
                     a.status,
                     a.scheduledAt,
                     a.completedAt ?? "",
@@ -267,6 +371,11 @@ export default function AdminFinancePage() {
           <p className="rounded-lg border p-3 text-sm">Runway: ${summary.runway.toLocaleString()}</p>
           <p className="rounded-lg border p-3 text-sm">Reached: {summary.reached.toLocaleString()}</p>
         </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          <p className="rounded-lg border p-3 text-sm">Daily activities: {cadenceCounts.Daily}</p>
+          <p className="rounded-lg border p-3 text-sm">Weekly activities: {cadenceCounts.Weekly}</p>
+          <p className="rounded-lg border p-3 text-sm">Monthly activities: {cadenceCounts.Monthly}</p>
+        </div>
         <div className="space-y-2">
           {byQuarter.map((item) => (
             <div key={item.quarter}>
@@ -282,6 +391,88 @@ export default function AdminFinancePage() {
         </div>
       </section>
 
+      <section className="grid gap-4 xl:grid-cols-3">
+        <article className="rounded-xl border border-primary/20 bg-background/70 p-4">
+          <p className="text-sm text-muted-foreground">Finance trend (6 months)</p>
+          <p className="mt-1 text-2xl font-semibold">{formatMoney(summary.actual)}</p>
+          <p className="text-xs text-muted-foreground">Utilized in selected window</p>
+          <div className="mt-4 rounded-lg border border-primary/15 bg-gradient-to-b from-primary/5 to-transparent p-3">
+            <svg viewBox="0 0 100 100" className="h-28 w-full">
+              <polyline
+                fill="none"
+                stroke="hsl(var(--primary))"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                points={trendPolyline}
+              />
+              {trendPoints.map((point, idx) => {
+                const max = Math.max(...trendPoints.map((p) => p.actual), 1);
+                const x = (idx / Math.max(trendPoints.length - 1, 1)) * 100;
+                const y = 100 - (point.actual / max) * 100;
+                return <circle key={point.key} cx={x} cy={y} r="1.8" fill="hsl(var(--primary))" />;
+              })}
+            </svg>
+            <div className="mt-2 grid grid-cols-6 text-[11px] text-muted-foreground">
+              {trendPoints.map((point) => (
+                <span key={point.key}>{point.label}</span>
+              ))}
+            </div>
+          </div>
+        </article>
+
+        <article className="rounded-xl border border-primary/20 bg-background/70 p-4">
+          <p className="text-sm text-muted-foreground">Sector budget comparison</p>
+          <p className="mt-1 text-2xl font-semibold">{formatMoney(summary.planned)}</p>
+          <p className="text-xs text-muted-foreground">Planned budget for filtered activities</p>
+          <div className="mt-4 space-y-2">
+            {bySector.map((item) => (
+              <div key={item.sector}>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span>{item.sector}</span>
+                  <span className="text-muted-foreground">
+                    {formatMoney(item.actual)} / {formatMoney(item.planned)}
+                  </span>
+                </div>
+                <div className="h-2 rounded-full bg-muted">
+                  <div className="h-2 rounded-full bg-primary/90" style={{ width: `${item.width}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="rounded-xl border border-primary/20 bg-background/70 p-4">
+          <p className="text-sm text-muted-foreground">Utilization performance</p>
+          <div className="mt-4 flex items-center gap-5">
+            <svg viewBox="0 0 120 120" className="h-28 w-28">
+              <circle cx="60" cy="60" r="48" fill="none" stroke="hsl(var(--muted))" strokeWidth="10" />
+              <circle
+                cx="60"
+                cy="60"
+                r="48"
+                fill="none"
+                stroke="hsl(var(--primary))"
+                strokeWidth="10"
+                strokeLinecap="round"
+                strokeDasharray={performanceGauge.circumference}
+                strokeDashoffset={performanceGauge.offset}
+                transform="rotate(-90 60 60)"
+              />
+              <text x="60" y="66" textAnchor="middle" className="fill-foreground text-sm font-semibold">
+                {performanceGauge.utilization.toFixed(0)}%
+              </text>
+            </svg>
+            <div className="space-y-2 text-sm">
+              <p className="rounded-md border px-2 py-1">Attendance: {summary.reached.toLocaleString()}</p>
+              <p className="rounded-md border px-2 py-1">Daily: {cadenceCounts.Daily}</p>
+              <p className="rounded-md border px-2 py-1">Weekly: {cadenceCounts.Weekly}</p>
+              <p className="rounded-md border px-2 py-1">Monthly: {cadenceCounts.Monthly}</p>
+            </div>
+          </div>
+        </article>
+      </section>
+
       <section className="rounded-xl border border-primary/20 bg-background/70 p-4">
         <h2 className="mb-3 text-xl font-semibold">Activity Budget Tracker</h2>
         <Table>
@@ -289,11 +480,15 @@ export default function AdminFinancePage() {
             <TableRow>
               <TableHead>Activity</TableHead>
               <TableHead>When</TableHead>
+              <TableHead>Cadence</TableHead>
+              <TableHead>Lead</TableHead>
+              <TableHead>Location</TableHead>
               <TableHead>Quarter</TableHead>
               <TableHead>Sector</TableHead>
               <TableHead>Planned</TableHead>
-              <TableHead>Actual</TableHead>
-              <TableHead>Reached</TableHead>
+              <TableHead>Utilized</TableHead>
+              <TableHead>Attendance</TableHead>
+              <TableHead>Success</TableHead>
               <TableHead>Status</TableHead>
             </TableRow>
           </TableHeader>
@@ -309,11 +504,21 @@ export default function AdminFinancePage() {
                       : `Scheduled ${timeFromNow(a.scheduledAt)}`}
                   </p>
                 </TableCell>
+                <TableCell>{a.cadence}</TableCell>
+                <TableCell>
+                  <p>{a.organizer}</p>
+                  <p className="text-xs text-muted-foreground">{a.organization}</p>
+                </TableCell>
+                <TableCell>{a.location}</TableCell>
                 <TableCell>{a.quarter}</TableCell>
                 <TableCell>{a.sector}</TableCell>
                 <TableCell>${a.plannedUsd.toLocaleString()}</TableCell>
                 <TableCell>${a.actualUsd.toLocaleString()}</TableCell>
-                <TableCell>{a.reached}</TableCell>
+                <TableCell>{a.attendance}</TableCell>
+                <TableCell>
+                  <p>{a.successRate}%</p>
+                  <p className="text-xs text-muted-foreground">{a.successCriteria}</p>
+                </TableCell>
                 <TableCell>{a.status}</TableCell>
               </TableRow>
             ))}
