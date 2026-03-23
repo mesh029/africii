@@ -316,11 +316,13 @@ export default function AdminFinancePage() {
 
   const trendPolyline = useMemo(() => {
     const values = trendPoints.map((p) => p.actual);
-    const max = Math.max(...values, 1);
+    const max = Math.max(...values, 0);
+    const ratioBase = max === 0 ? 0.2 : 1;
     return trendPoints
       .map((point, idx) => {
         const x = 8 + (idx / Math.max(trendPoints.length - 1, 1)) * 84;
-        const y = 92 - (point.actual / max) * 78;
+        const ratio = max === 0 ? ratioBase : point.actual / max;
+        const y = 92 - ratio * 78;
         return `${x},${y}`;
       })
       .join(" ");
@@ -478,6 +480,7 @@ export default function AdminFinancePage() {
           <p className="text-xs text-muted-foreground">Utilized in selected window</p>
           <div className="mt-4 rounded-lg border border-primary/15 bg-gradient-to-b from-primary/5 to-transparent p-3">
             <svg viewBox="0 0 100 100" className="h-28 w-full">
+              <line x1="8" y1="92" x2="92" y2="92" stroke="hsl(var(--border))" strokeWidth="1" />
               <polyline
                 fill="none"
                 stroke="hsl(var(--primary))"
@@ -486,11 +489,11 @@ export default function AdminFinancePage() {
                 strokeLinejoin="round"
                 points={trendPolyline}
               />
-              <line x1="8" y1="92" x2="92" y2="92" stroke="hsl(var(--border))" strokeWidth="1" />
               {trendPoints.map((point, idx) => {
-                const max = Math.max(...trendPoints.map((p) => p.actual), 1);
+                const max = Math.max(...trendPoints.map((p) => p.actual), 0);
                 const x = 8 + (idx / Math.max(trendPoints.length - 1, 1)) * 84;
-                const y = 92 - (point.actual / max) * 78;
+                const ratio = max === 0 ? 0.2 : point.actual / max;
+                const y = 92 - ratio * 78;
                 return <circle key={point.key} cx={x} cy={y} r="1.8" fill="hsl(var(--primary))" />;
               })}
             </svg>

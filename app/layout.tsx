@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Script from "next/script";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
@@ -24,25 +23,28 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const themeInitScript = `
+    (function() {
+      try {
+        var saved = localStorage.getItem("africii-theme");
+        var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        var useDark = saved ? saved === "dark" : prefersDark;
+        document.documentElement.classList.toggle("dark", useDark);
+        document.documentElement.style.colorScheme = useDark ? "dark" : "light";
+      } catch (e) {}
+    })();
+  `;
+
   return (
     <html
       lang="en"
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className="min-h-full flex flex-col">
-        <Script id="theme-init" strategy="beforeInteractive">
-          {`
-            (function() {
-              try {
-                var saved = localStorage.getItem("africii-theme");
-                var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-                var useDark = saved ? saved === "dark" : prefersDark;
-                document.documentElement.classList.toggle("dark", useDark);
-              } catch (e) {}
-            })();
-          `}
-        </Script>
         {children}
         <Analytics />
       </body>
