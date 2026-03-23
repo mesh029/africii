@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,9 +26,24 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <Script id="theme-init" strategy="beforeInteractive">
+          {`
+            (function() {
+              try {
+                var saved = localStorage.getItem("africii-theme");
+                var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+                var useDark = saved ? saved === "dark" : prefersDark;
+                document.documentElement.classList.toggle("dark", useDark);
+              } catch (e) {}
+            })();
+          `}
+        </Script>
+        {children}
+      </body>
     </html>
   );
 }

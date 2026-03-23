@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
   BarChart3,
+  BriefcaseBusiness,
+  CalendarClock,
   Download,
+  DollarSign,
   FileDown,
   HeartHandshake,
   Mail,
@@ -16,6 +19,7 @@ import {
   Users,
 } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import KisumuImpactMap from "@/components/kisumu-impact-map";
 
 import { Badge } from "@/components/ui/badge";
@@ -214,6 +218,27 @@ const IMPACT_GALLERY = [
   },
 ] as const;
 
+type WorkplanActivity = {
+  id: string;
+  quarter: "Q1" | "Q2" | "Q3" | "Q4";
+  sector: AidType;
+  title: string;
+  plannedUsd: number;
+  actualUsd: number;
+  beneficiariesReached: number;
+  status: "On Track" | "At Risk" | "Complete";
+};
+
+const TOTAL_FUNDING_USD = 1_000_000;
+const ANNUAL_SPEND_SERIES = [
+  { year: 2021, spent: 420_000, reached: 1380 },
+  { year: 2022, spent: 560_000, reached: 1840 },
+  { year: 2023, spent: 710_000, reached: 2260 },
+  { year: 2024, spent: 820_000, reached: 2710 },
+  { year: 2025, spent: 910_000, reached: 3140 },
+  { year: 2026, spent: 0, reached: 0 },
+];
+
 function hashStringToSeed(value: string): number {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) {
@@ -312,6 +337,40 @@ function anonymizeName(name: string, index: number): string {
   return `${firstName} • Household ${String(index + 1).padStart(3, "0")}`;
 }
 
+function generateWorkplanActivities(seed = 2026): WorkplanActivity[] {
+  const rng = seededRandom(seed);
+  const quarterCycle: Array<"Q1" | "Q2" | "Q3" | "Q4"> = ["Q1", "Q1", "Q2", "Q2", "Q3", "Q3", "Q4", "Q4"];
+  const activityTitles = [
+    "Ward planning forum",
+    "School fees disbursement",
+    "Community health outreach",
+    "ICT learning session",
+    "Youth enterprise bootcamp",
+    "Disability inclusion clinic",
+    "Climate resilience workshop",
+    "Monitoring and evaluation meeting",
+  ];
+
+  return Array.from({ length: 16 }, (_, index) => {
+    const planned = randomBetween(rng, 14_000, 72_000);
+    const utilizationFactor = 0.58 + rng() * 0.34;
+    const actual = Math.round(planned * utilizationFactor);
+    const reached = randomBetween(rng, 18, 190);
+    const quarter = quarterCycle[index % quarterCycle.length];
+    const sector = AID_TYPES[index % AID_TYPES.length];
+    return {
+      id: `ACT-${String(index + 1).padStart(3, "0")}`,
+      quarter,
+      sector,
+      title: activityTitles[index % activityTitles.length],
+      plannedUsd: planned,
+      actualUsd: actual,
+      beneficiariesReached: reached,
+      status: actual >= planned * 0.85 ? "On Track" : actual >= planned * 0.65 ? "At Risk" : "Complete",
+    };
+  });
+}
+
 export default function Home() {
   const [selectedWard, setSelectedWard] = useState<string>("all");
   const [selectedAidType, setSelectedAidType] = useState<string>("all");
@@ -320,6 +379,10 @@ export default function Home() {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [exportMessage, setExportMessage] = useState<string>("");
+  const [workplanActivities, setWorkplanActivities] = useState<WorkplanActivity[]>(() =>
+    generateWorkplanActivities()
+  );
+  const [liveTick, setLiveTick] = useState(0);
 
   const data = useMemo(() => {
     const seed = hashStringToSeed("africii-kisumu-beneficiary-demo-v1");
@@ -337,6 +400,32 @@ export default function Home() {
     const isDark = document.documentElement.classList.toggle("dark");
     window.localStorage.setItem("africii-theme", isDark ? "dark" : "light");
   };
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setWorkplanActivities((previous) =>
+        previous.map((activity, index) => {
+          const step = ((index + 1) % 4) + 1;
+          const nextActual = Math.min(activity.plannedUsd, activity.actualUsd + step * 110);
+          const nextReached = activity.beneficiariesReached + Math.round(step * 0.6);
+          return {
+            ...activity,
+            actualUsd: nextActual,
+            beneficiariesReached: nextReached,
+            status:
+              nextActual >= activity.plannedUsd
+                ? "Complete"
+                : nextActual >= activity.plannedUsd * 0.75
+                  ? "On Track"
+                  : "At Risk",
+          };
+        })
+      );
+      setLiveTick((value) => value + 1);
+    }, 4000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   const filteredData = useMemo(() => {
     return data.filter((item) => {
@@ -475,6 +564,50 @@ export default function Home() {
     return Number((total / wardImpactBreakdown.length).toFixed(1));
   }, [wardImpactBreakdown]);
 
+  const fundingSummary = useMemo(() => {
+    const actualSpent = workplanActivities.reduce((sum, item) => sum + item.actualUsd, 0);
+    const planned = workplanActivities.reduce((sum, item) => sum + item.plannedUsd, 0);
+    const reached = workplanActivities.reduce((sum, item) => sum + item.beneficiariesReached, 0);
+    const utilizationPct = (actualSpent / TOTAL_FUNDING_USD) * 100;
+    const runwayUsd = Math.max(TOTAL_FUNDING_USD - actualSpent, 0);
+    return {
+      actualSpent,
+      planned,
+      reached,
+      utilizationPct,
+      runwayUsd,
+      donorExpectationPct: planned ? (actualSpent / planned) * 100 : 0,
+    };
+  }, [workplanActivities]);
+
+  const quarterlyAnalytics = useMemo(() => {
+    const quarters: Array<"Q1" | "Q2" | "Q3" | "Q4"> = ["Q1", "Q2", "Q3", "Q4"];
+    return quarters.map((quarter) => {
+      const rows = workplanActivities.filter((item) => item.quarter === quarter);
+      const planned = rows.reduce((sum, item) => sum + item.plannedUsd, 0);
+      const actual = rows.reduce((sum, item) => sum + item.actualUsd, 0);
+      const reached = rows.reduce((sum, item) => sum + item.beneficiariesReached, 0);
+      return {
+        quarter,
+        planned,
+        actual,
+        reached,
+        utilization: planned ? (actual / planned) * 100 : 0,
+      };
+    });
+  }, [workplanActivities]);
+
+  const annualFundingSeries = useMemo(() => {
+    return ANNUAL_SPEND_SERIES.map((year) => {
+      if (year.year !== 2026) return year;
+      return {
+        ...year,
+        spent: fundingSummary.actualSpent,
+        reached: fundingSummary.reached,
+      };
+    });
+  }, [fundingSummary.actualSpent, fundingSummary.reached]);
+
   const summary = useMemo(() => {
     const total = filteredData.length;
     const averageAidScore = total
@@ -529,6 +662,41 @@ export default function Home() {
     setExportMessage("PDF download simulated successfully.");
   };
 
+  const downloadFundingReport = () => {
+    const header =
+      "Activity ID,Quarter,Sector,Title,Planned USD,Actual USD,Beneficiaries Reached,Status";
+    const rows = workplanActivities.map((item) =>
+      [
+        item.id,
+        item.quarter,
+        item.sector,
+        item.title,
+        item.plannedUsd,
+        item.actualUsd,
+        item.beneficiariesReached,
+        item.status,
+      ].join(",")
+    );
+    triggerDownload([header, ...rows].join("\n"), "africii-admin-funding-report.csv", "text/csv");
+    setExportMessage("Admin funding CSV report generated.");
+  };
+
+  const downloadQuarterlyBrief = () => {
+    const lines = [
+      "AFRICII Admin Quarterly Workplan Brief (Simulated PDF)",
+      `Generated Tick: ${liveTick}`,
+      `Total Funding: $${TOTAL_FUNDING_USD.toLocaleString()}`,
+      `Utilized: $${fundingSummary.actualSpent.toLocaleString()} (${fundingSummary.utilizationPct.toFixed(1)}%)`,
+      "",
+      ...quarterlyAnalytics.map(
+        (item) =>
+          `${item.quarter} | Planned $${item.planned.toLocaleString()} | Actual $${item.actual.toLocaleString()} | Utilization ${item.utilization.toFixed(1)}% | Reached ${item.reached}`
+      ),
+    ];
+    triggerDownload(lines.join("\n"), "africii-quarterly-workplan-brief.pdf", "application/pdf");
+    setExportMessage("Quarterly workplan brief generated.");
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur">
@@ -551,6 +719,12 @@ export default function Home() {
             </a>
             <a href="#dashboard" className="hover:text-foreground">
               Dashboard
+            </a>
+            <Link href="/beneficiaries" className="hover:text-foreground">
+              Beneficiaries
+            </Link>
+            <a href="#admin-finance" className="hover:text-foreground">
+              Admin Finance
             </a>
             <a href="#public-data" className="hover:text-foreground">
               Public Data
@@ -678,6 +852,150 @@ export default function Home() {
               </div>
             ))}
           </div>
+        </section>
+
+        <section id="admin-finance" className="space-y-4 rounded-xl border border-primary/20 bg-background/60 p-4 md:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-semibold tracking-tight">Admin real-time funding intelligence</h2>
+              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                Monitor quarterly workplan spend, donor expectation alignment, and service delivery
+                utilization in real time. This section is visible for admin mode only.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={downloadFundingReport}>
+                <Download />
+                Funding CSV
+              </Button>
+              <Button variant="outline" onClick={downloadQuarterlyBrief}>
+                <FileDown />
+                Quarterly PDF
+              </Button>
+            </div>
+          </div>
+
+          {!adminMode ? (
+            <div className="rounded-lg border border-dashed border-primary/30 bg-background/70 p-4 text-sm text-muted-foreground">
+              Enable <span className="font-medium text-foreground">Admin: Dots Visible</span> in the map
+              controls to unlock real-time funding and service intelligence.
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-lg border border-primary/15 bg-background/70 p-3">
+                  <p className="text-xs text-muted-foreground">Total funding envelope</p>
+                  <p className="mt-1 text-xl font-semibold">${TOTAL_FUNDING_USD.toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border border-primary/15 bg-background/70 p-3">
+                  <p className="text-xs text-muted-foreground">Utilized in real time</p>
+                  <p className="mt-1 text-xl font-semibold">
+                    ${fundingSummary.actualSpent.toLocaleString()} ({fundingSummary.utilizationPct.toFixed(1)}%)
+                  </p>
+                </div>
+                <div className="rounded-lg border border-primary/15 bg-background/70 p-3">
+                  <p className="text-xs text-muted-foreground">Runway balance</p>
+                  <p className="mt-1 text-xl font-semibold">${fundingSummary.runwayUsd.toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border border-primary/15 bg-background/70 p-3">
+                  <p className="text-xs text-muted-foreground">Beneficiaries reached</p>
+                  <p className="mt-1 text-xl font-semibold">{fundingSummary.reached.toLocaleString()}</p>
+                </div>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div>
+                  <h3 className="flex items-center gap-2 text-lg font-semibold">
+                    <CalendarClock className="size-4 text-primary" />
+                    Quarterly workplan analysis
+                  </h3>
+                  <div className="mt-3 space-y-3 rounded-xl border border-primary/15 p-3">
+                    {quarterlyAnalytics.map((item) => (
+                      <div key={item.quarter}>
+                        <div className="mb-1 flex items-center justify-between text-sm">
+                          <span className="font-medium">{item.quarter}</span>
+                          <span className="text-muted-foreground">
+                            ${item.actual.toLocaleString()} / ${item.planned.toLocaleString()} ({item.utilization.toFixed(1)}%)
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted">
+                          <div
+                            className="h-2 rounded-full bg-primary"
+                            style={{ width: `${Math.min(item.utilization, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="flex items-center gap-2 text-lg font-semibold">
+                    <BriefcaseBusiness className="size-4 text-primary" />
+                    Annual funding + reach trend
+                  </h3>
+                  <div className="mt-3 rounded-xl border border-primary/15 p-4">
+                    <div className="flex h-40 items-end gap-2">
+                      {annualFundingSeries.map((point) => (
+                        <div key={point.year} className="flex flex-1 flex-col items-center gap-2">
+                          <div
+                            className="w-full rounded-md bg-accent"
+                            style={{ height: `${Math.max((point.spent / TOTAL_FUNDING_USD) * 150, 8)}px` }}
+                          />
+                          <span className="text-[11px] text-muted-foreground">{point.year}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                      {annualFundingSeries.map((point) => (
+                        <p key={`${point.year}-meta`}>
+                          {point.year}: ${point.spent.toLocaleString()} | {point.reached.toLocaleString()} reached
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="mb-2 flex items-center gap-2 text-lg font-semibold">
+                  <DollarSign className="size-4 text-primary" />
+                  Live activity spend tracker
+                </h3>
+                <div className="rounded-xl border border-primary/15">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Activity</TableHead>
+                        <TableHead>Quarter</TableHead>
+                        <TableHead>Sector</TableHead>
+                        <TableHead>Planned (USD)</TableHead>
+                        <TableHead>Actual (USD)</TableHead>
+                        <TableHead>Reached</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {workplanActivities.slice(0, 10).map((activity) => (
+                        <TableRow key={activity.id}>
+                          <TableCell>{activity.title}</TableCell>
+                          <TableCell>{activity.quarter}</TableCell>
+                          <TableCell>{activity.sector}</TableCell>
+                          <TableCell>${activity.plannedUsd.toLocaleString()}</TableCell>
+                          <TableCell>${activity.actualUsd.toLocaleString()}</TableCell>
+                          <TableCell>{activity.beneficiariesReached}</TableCell>
+                          <TableCell>{activity.status}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Real-time simulation tick: {liveTick} (updates every 4 seconds)
+                </p>
+              </div>
+            </>
+          )}
         </section>
 
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
