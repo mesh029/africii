@@ -130,7 +130,7 @@ export default async function StoryPage({
   }
 
   return (
-    <main className="mx-auto w-full max-w-4xl px-4 py-10 md:px-8">
+    <main className="mx-auto w-full px-4 py-10 md:px-8 xl:px-12 2xl:px-16">
       <Link
         href="/"
         className="mb-6 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"

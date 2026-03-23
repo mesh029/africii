@@ -30,7 +30,7 @@ export default function BeneficiarySearchPage() {
   }, [profiles, query]);
 
   return (
-    <main className="mx-auto w-full max-w-7xl space-y-6 px-4 py-8 md:px-8">
+    <main className="mx-auto w-full space-y-6 px-4 py-8 md:px-8 xl:px-12 2xl:px-16">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Link href="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">

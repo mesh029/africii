@@ -101,7 +101,7 @@ export default function AdminFinancePage() {
   }, [activities]);
 
   return (
-    <main className="mx-auto w-full max-w-7xl space-y-6 px-4 py-8 md:px-8">
+    <main className="mx-auto w-full space-y-6 px-4 py-8 md:px-8 xl:px-12 2xl:px-16">
       <Link href="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="size-4" />
         Back to homepage

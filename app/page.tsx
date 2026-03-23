@@ -6,9 +6,11 @@ import {
   HeartHandshake,
   Mail,
   MapPinned,
+  Menu,
   MoonStar,
   ShieldCheck,
   Shield,
+  X,
   Users,
 } from "lucide-react";
 import Image from "next/image";
@@ -287,6 +289,7 @@ function generateBeneficiaries(count = 140, seed = 42): Beneficiary[] {
 export default function Home() {
   const [selectedMapSector, setSelectedMapSector] = useState<string>("all");
   const [adminMode, setAdminMode] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const data = useMemo(() => {
     const seed = hashStringToSeed("africii-kisumu-beneficiary-demo-v1");
@@ -384,7 +387,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur">
-        <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between px-4 md:px-8">
+        <div className="mx-auto flex h-16 w-full items-center justify-between px-4 md:px-8 xl:px-12 2xl:px-16">
           <div className="flex items-center gap-2">
             <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-primary/15 text-primary">
               A
@@ -394,7 +397,7 @@ export default function Home() {
               <p className="text-xs text-muted-foreground">Impact & Transparency</p>
             </div>
           </div>
-          <nav className="flex max-w-[65vw] items-center gap-4 overflow-x-auto text-sm text-muted-foreground">
+          <nav className="hidden items-center gap-4 text-sm text-muted-foreground lg:flex">
             <a href="#impact" className="hover:text-foreground">
               Impact
             </a>
@@ -414,14 +417,50 @@ export default function Home() {
               Insights
             </a>
           </nav>
-          <Button variant="outline" onClick={toggleTheme} aria-label="Toggle dark mode">
-            <MoonStar />
-            Theme
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={toggleTheme} aria-label="Toggle dark mode">
+              <MoonStar />
+              <span className="hidden sm:inline">Theme</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              className="lg:hidden"
+              onClick={() => setMobileNavOpen((value) => !value)}
+              aria-label="Toggle navigation menu"
+            >
+              {mobileNavOpen ? <X /> : <Menu />}
+            </Button>
+          </div>
         </div>
+
+        {mobileNavOpen ? (
+          <div className="border-t bg-background/95 px-4 py-3 text-sm md:px-8 xl:px-12 2xl:px-16 lg:hidden">
+            <nav className="grid gap-2 text-muted-foreground">
+              <a href="#impact" className="hover:text-foreground" onClick={() => setMobileNavOpen(false)}>
+                Impact
+              </a>
+              <a href="#stories" className="hover:text-foreground" onClick={() => setMobileNavOpen(false)}>
+                Stories
+              </a>
+              <Link href="/dashboard-controls" className="hover:text-foreground" onClick={() => setMobileNavOpen(false)}>
+                Dashboard
+              </Link>
+              <Link href="/beneficiaries" className="hover:text-foreground" onClick={() => setMobileNavOpen(false)}>
+                Beneficiaries
+              </Link>
+              <Link href="/admin-finance" className="hover:text-foreground" onClick={() => setMobileNavOpen(false)}>
+                Admin Finance
+              </Link>
+              <a href="#public-data" className="hover:text-foreground" onClick={() => setMobileNavOpen(false)}>
+                Insights
+              </a>
+            </nav>
+          </div>
+        ) : null}
       </header>
 
-      <main className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 md:px-8">
+      <main className="mx-auto flex w-full flex-col gap-8 px-4 py-8 md:px-8 xl:px-12 2xl:px-16">
         <section className="relative overflow-hidden bg-gradient-to-br from-primary/15 via-background to-accent/20 px-6 py-12 md:px-10">
           <div className="absolute -top-16 -right-16 h-52 w-52 rounded-full bg-primary/15 blur-3xl" />
           <div className="absolute -bottom-20 left-20 h-44 w-44 rounded-full bg-accent/30 blur-3xl" />
@@ -660,7 +699,7 @@ export default function Home() {
       </main>
 
       <footer id="impact" className="border-t bg-muted/30">
-        <div className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-10 md:grid-cols-3 md:px-8">
+        <div className="mx-auto grid w-full gap-6 px-4 py-10 md:grid-cols-3 md:px-8 xl:px-12 2xl:px-16">
           <div>
             <p className="text-base font-semibold">Africii</p>
             <p className="mt-2 text-sm text-muted-foreground">
