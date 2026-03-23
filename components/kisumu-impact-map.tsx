@@ -76,6 +76,13 @@ export default function KisumuImpactMap({
   const [geojson, setGeojson] = useState<GeoJsonData | null>(null);
   const [hoverInfo, setHoverInfo] = useState<HoverInfo | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [webglSupported] = useState<boolean | null>(() => {
+    if (typeof window === "undefined") return null;
+    const canvas = document.createElement("canvas");
+    const gl2 = canvas.getContext("webgl2");
+    const gl = canvas.getContext("webgl");
+    return Boolean(gl2 || gl);
+  });
 
   const normalizedWardImpactData = useMemo(() => {
     return Object.fromEntries(
@@ -160,6 +167,15 @@ export default function KisumuImpactMap({
 
     return [wardLayer, pointsLayer];
   }, [beneficiaryPoints, geojson, normalizedWardImpactData, showBeneficiaryDots]);
+
+  if (webglSupported === false) {
+    return (
+      <div className="rounded-xl border border-dashed border-primary/25 bg-background/70 p-4 text-sm text-muted-foreground">
+        Map rendering is unavailable on this browser/device (WebGL not supported). Data tracking is
+        still active in the ward breakdown cards below.
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">

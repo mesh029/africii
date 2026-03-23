@@ -3,19 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
-  BarChart3,
-  BriefcaseBusiness,
-  CalendarClock,
-  Download,
-  DollarSign,
-  FileDown,
   HeartHandshake,
   Mail,
   MapPinned,
   MoonStar,
   ShieldCheck,
   Shield,
-  TrendingUp,
   Users,
 } from "lucide-react";
 import Image from "next/image";
@@ -24,7 +17,6 @@ import KisumuImpactMap from "@/components/kisumu-impact-map";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -32,14 +24,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 
 type Beneficiary = {
   id: string;
@@ -196,7 +180,7 @@ const IMPACT_GALLERY = [
     slug: "education-support-in-manyatta",
     title: "Education support in Manyatta",
     image:
-      "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?auto=format&fit=crop&w=1600&q=80",
+      "https://images.unsplash.com/photo-1503676260728-1c00da094a0b?auto=format&fit=crop&w=1600&q=80",
     note: "Bursary support keeps learners in school and reduces dropout risk.",
     href: "/stories/education-support-in-manyatta",
   },
@@ -218,26 +202,6 @@ const IMPACT_GALLERY = [
   },
 ] as const;
 
-type WorkplanActivity = {
-  id: string;
-  quarter: "Q1" | "Q2" | "Q3" | "Q4";
-  sector: AidType;
-  title: string;
-  plannedUsd: number;
-  actualUsd: number;
-  beneficiariesReached: number;
-  status: "On Track" | "At Risk" | "Complete";
-};
-
-const TOTAL_FUNDING_USD = 1_000_000;
-const ANNUAL_SPEND_SERIES = [
-  { year: 2021, spent: 420_000, reached: 1380 },
-  { year: 2022, spent: 560_000, reached: 1840 },
-  { year: 2023, spent: 710_000, reached: 2260 },
-  { year: 2024, spent: 820_000, reached: 2710 },
-  { year: 2025, spent: 910_000, reached: 3140 },
-  { year: 2026, spent: 0, reached: 0 },
-];
 
 function hashStringToSeed(value: string): number {
   let hash = 0;
@@ -320,69 +284,9 @@ function generateBeneficiaries(count = 140, seed = 42): Beneficiary[] {
   });
 }
 
-function triggerDownload(content: string, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}
-
-function anonymizeName(name: string, index: number): string {
-  const [firstName] = name.split(" ");
-  return `${firstName} • Household ${String(index + 1).padStart(3, "0")}`;
-}
-
-function generateWorkplanActivities(seed = 2026): WorkplanActivity[] {
-  const rng = seededRandom(seed);
-  const quarterCycle: Array<"Q1" | "Q2" | "Q3" | "Q4"> = ["Q1", "Q1", "Q2", "Q2", "Q3", "Q3", "Q4", "Q4"];
-  const activityTitles = [
-    "Ward planning forum",
-    "School fees disbursement",
-    "Community health outreach",
-    "ICT learning session",
-    "Youth enterprise bootcamp",
-    "Disability inclusion clinic",
-    "Climate resilience workshop",
-    "Monitoring and evaluation meeting",
-  ];
-
-  return Array.from({ length: 16 }, (_, index) => {
-    const planned = randomBetween(rng, 14_000, 72_000);
-    const utilizationFactor = 0.58 + rng() * 0.34;
-    const actual = Math.round(planned * utilizationFactor);
-    const reached = randomBetween(rng, 18, 190);
-    const quarter = quarterCycle[index % quarterCycle.length];
-    const sector = AID_TYPES[index % AID_TYPES.length];
-    return {
-      id: `ACT-${String(index + 1).padStart(3, "0")}`,
-      quarter,
-      sector,
-      title: activityTitles[index % activityTitles.length],
-      plannedUsd: planned,
-      actualUsd: actual,
-      beneficiariesReached: reached,
-      status: actual >= planned * 0.85 ? "On Track" : actual >= planned * 0.65 ? "At Risk" : "Complete",
-    };
-  });
-}
-
 export default function Home() {
-  const [selectedWard, setSelectedWard] = useState<string>("all");
-  const [selectedAidType, setSelectedAidType] = useState<string>("all");
   const [selectedMapSector, setSelectedMapSector] = useState<string>("all");
   const [adminMode, setAdminMode] = useState(false);
-  const [startDate, setStartDate] = useState<string>("");
-  const [endDate, setEndDate] = useState<string>("");
-  const [exportMessage, setExportMessage] = useState<string>("");
-  const [workplanActivities, setWorkplanActivities] = useState<WorkplanActivity[]>(() =>
-    generateWorkplanActivities()
-  );
-  const [liveTick, setLiveTick] = useState(0);
 
   const data = useMemo(() => {
     const seed = hashStringToSeed("africii-kisumu-beneficiary-demo-v1");
@@ -401,112 +305,7 @@ export default function Home() {
     window.localStorage.setItem("africii-theme", isDark ? "dark" : "light");
   };
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setWorkplanActivities((previous) =>
-        previous.map((activity, index) => {
-          const step = ((index + 1) % 4) + 1;
-          const nextActual = Math.min(activity.plannedUsd, activity.actualUsd + step * 110);
-          const nextReached = activity.beneficiariesReached + Math.round(step * 0.6);
-          return {
-            ...activity,
-            actualUsd: nextActual,
-            beneficiariesReached: nextReached,
-            status:
-              nextActual >= activity.plannedUsd
-                ? "Complete"
-                : nextActual >= activity.plannedUsd * 0.75
-                  ? "On Track"
-                  : "At Risk",
-          };
-        })
-      );
-      setLiveTick((value) => value + 1);
-    }, 4000);
-
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const filteredData = useMemo(() => {
-    return data.filter((item) => {
-      const wardPass = selectedWard === "all" || item.ward === selectedWard;
-      const aidTypePass = selectedAidType === "all" || item.aidType === selectedAidType;
-      const startPass = !startDate || item.date >= startDate;
-      const endPass = !endDate || item.date <= endDate;
-      return wardPass && aidTypePass && startPass && endPass;
-    });
-  }, [data, endDate, selectedAidType, selectedWard, startDate]);
-
-  const publicRows = useMemo(() => {
-    return filteredData.map((item, index) => ({
-      household: anonymizeName(item.name, index),
-      ward: item.ward,
-      aidType: item.aidType,
-      aidScore: item.aidScore,
-      period: item.date.slice(0, 7),
-      impactNote: item.impactNote,
-    }));
-  }, [filteredData]);
-
-  const aidTypeDistribution = useMemo(() => {
-    const counts = AID_TYPES.map((type) => ({
-      type,
-      count: filteredData.filter((item) => item.aidType === type).length,
-    }));
-    const max = Math.max(...counts.map((item) => item.count), 1);
-    return counts.map((item) => ({
-      ...item,
-      widthPercent: (item.count / max) * 100,
-    }));
-  }, [filteredData]);
-
-  const monthlyImpactTrend = useMemo(() => {
-    const monthly = filteredData.reduce<Record<string, { total: number; sum: number }>>((acc, item) => {
-      const month = item.date.slice(0, 7);
-      if (!acc[month]) {
-        acc[month] = { total: 0, sum: 0 };
-      }
-      acc[month].total += 1;
-      acc[month].sum += item.aidScore;
-      return acc;
-    }, {});
-
-    return Object.entries(monthly)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .slice(-6)
-      .map(([month, value]) => ({
-        month,
-        avgScore: value.total ? value.sum / value.total : 0,
-      }));
-  }, [filteredData]);
-
-  const wardPerformance = useMemo(() => {
-    const grouped = filteredData.reduce<Record<string, { count: number; score: number }>>((acc, item) => {
-      if (!acc[item.ward]) acc[item.ward] = { count: 0, score: 0 };
-      acc[item.ward].count += 1;
-      acc[item.ward].score += item.aidScore;
-      return acc;
-    }, {});
-
-    const rows = Object.entries(grouped).map(([ward, value]) => ({
-      ward,
-      count: value.count,
-      avg: value.count ? value.score / value.count : 0,
-    }));
-
-    const maxAvg = Math.max(...rows.map((item) => item.avg), 1);
-    return rows
-      .sort((a, b) => b.avg - a.avg)
-      .slice(0, 6)
-      .map((item) => ({ ...item, width: (item.avg / maxAvg) * 100 }));
-  }, [filteredData]);
-
-  const coverageRing = useMemo(() => {
-    const reachedWards = new Set(filteredData.map((item) => item.ward)).size;
-    const totalWards = WARDS.length;
-    const percent = totalWards ? (reachedWards / totalWards) * 100 : 0;
-    return Number(percent.toFixed(1));
-  }, [filteredData]);
+  const filteredData = data;
 
   const mapFilteredData = useMemo(() => {
     return filteredData.filter((item) => {
@@ -564,50 +363,6 @@ export default function Home() {
     return Number((total / wardImpactBreakdown.length).toFixed(1));
   }, [wardImpactBreakdown]);
 
-  const fundingSummary = useMemo(() => {
-    const actualSpent = workplanActivities.reduce((sum, item) => sum + item.actualUsd, 0);
-    const planned = workplanActivities.reduce((sum, item) => sum + item.plannedUsd, 0);
-    const reached = workplanActivities.reduce((sum, item) => sum + item.beneficiariesReached, 0);
-    const utilizationPct = (actualSpent / TOTAL_FUNDING_USD) * 100;
-    const runwayUsd = Math.max(TOTAL_FUNDING_USD - actualSpent, 0);
-    return {
-      actualSpent,
-      planned,
-      reached,
-      utilizationPct,
-      runwayUsd,
-      donorExpectationPct: planned ? (actualSpent / planned) * 100 : 0,
-    };
-  }, [workplanActivities]);
-
-  const quarterlyAnalytics = useMemo(() => {
-    const quarters: Array<"Q1" | "Q2" | "Q3" | "Q4"> = ["Q1", "Q2", "Q3", "Q4"];
-    return quarters.map((quarter) => {
-      const rows = workplanActivities.filter((item) => item.quarter === quarter);
-      const planned = rows.reduce((sum, item) => sum + item.plannedUsd, 0);
-      const actual = rows.reduce((sum, item) => sum + item.actualUsd, 0);
-      const reached = rows.reduce((sum, item) => sum + item.beneficiariesReached, 0);
-      return {
-        quarter,
-        planned,
-        actual,
-        reached,
-        utilization: planned ? (actual / planned) * 100 : 0,
-      };
-    });
-  }, [workplanActivities]);
-
-  const annualFundingSeries = useMemo(() => {
-    return ANNUAL_SPEND_SERIES.map((year) => {
-      if (year.year !== 2026) return year;
-      return {
-        ...year,
-        spent: fundingSummary.actualSpent,
-        reached: fundingSummary.reached,
-      };
-    });
-  }, [fundingSummary.actualSpent, fundingSummary.reached]);
-
   const summary = useMemo(() => {
     const total = filteredData.length;
     const averageAidScore = total
@@ -626,77 +381,6 @@ export default function Home() {
     return { total, averageAidScore, topWards };
   }, [filteredData]);
 
-  const downloadCsv = () => {
-    const header = "ID,Name,Ward,Program,Impact Score,Amount (KSH),Date,Impact Note";
-    const rows = filteredData.map((item) =>
-      [
-        item.id,
-        item.name,
-        item.ward,
-        item.aidType,
-        item.aidScore.toString(),
-        item.amountKsh.toString(),
-        item.date,
-        `"${item.impactNote.replaceAll('"', '""')}"`,
-      ].join(",")
-    );
-    triggerDownload([header, ...rows].join("\n"), "africii-beneficiaries-report.csv", "text/csv");
-    setExportMessage(`CSV download started for ${filteredData.length} records.`);
-  };
-
-  const downloadPdf = () => {
-    const lines = [
-      "Africii Beneficiary Impact Report (Simulated PDF)",
-      `Date: ${new Date().toLocaleDateString()}`,
-      `Records: ${filteredData.length}`,
-      `Average Impact Score: ${summary.averageAidScore.toFixed(1)}`,
-      "",
-      ...filteredData.slice(0, 20).map((item) => {
-        return `${item.id} | ${item.name} | ${item.ward} | ${item.aidType} | Score: ${item.aidScore}`;
-      }),
-      "",
-      "(Preview only) In production, connect a real PDF generation service.",
-    ];
-
-    triggerDownload(lines.join("\n"), "africii-impact-report.pdf", "application/pdf");
-    setExportMessage("PDF download simulated successfully.");
-  };
-
-  const downloadFundingReport = () => {
-    const header =
-      "Activity ID,Quarter,Sector,Title,Planned USD,Actual USD,Beneficiaries Reached,Status";
-    const rows = workplanActivities.map((item) =>
-      [
-        item.id,
-        item.quarter,
-        item.sector,
-        item.title,
-        item.plannedUsd,
-        item.actualUsd,
-        item.beneficiariesReached,
-        item.status,
-      ].join(",")
-    );
-    triggerDownload([header, ...rows].join("\n"), "africii-admin-funding-report.csv", "text/csv");
-    setExportMessage("Admin funding CSV report generated.");
-  };
-
-  const downloadQuarterlyBrief = () => {
-    const lines = [
-      "AFRICII Admin Quarterly Workplan Brief (Simulated PDF)",
-      `Generated Tick: ${liveTick}`,
-      `Total Funding: $${TOTAL_FUNDING_USD.toLocaleString()}`,
-      `Utilized: $${fundingSummary.actualSpent.toLocaleString()} (${fundingSummary.utilizationPct.toFixed(1)}%)`,
-      "",
-      ...quarterlyAnalytics.map(
-        (item) =>
-          `${item.quarter} | Planned $${item.planned.toLocaleString()} | Actual $${item.actual.toLocaleString()} | Utilization ${item.utilization.toFixed(1)}% | Reached ${item.reached}`
-      ),
-    ];
-    triggerDownload(lines.join("\n"), "africii-quarterly-workplan-brief.pdf", "application/pdf");
-    setExportMessage("Quarterly workplan brief generated.");
-  };
-
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur">
@@ -710,24 +394,24 @@ export default function Home() {
               <p className="text-xs text-muted-foreground">Impact & Transparency</p>
             </div>
           </div>
-          <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
+          <nav className="flex max-w-[65vw] items-center gap-4 overflow-x-auto text-sm text-muted-foreground">
             <a href="#impact" className="hover:text-foreground">
               Impact
             </a>
             <a href="#stories" className="hover:text-foreground">
               Stories
             </a>
-            <a href="#dashboard" className="hover:text-foreground">
+            <Link href="/dashboard-controls" className="hover:text-foreground">
               Dashboard
-            </a>
+            </Link>
             <Link href="/beneficiaries" className="hover:text-foreground">
               Beneficiaries
             </Link>
-            <a href="#admin-finance" className="hover:text-foreground">
+            <Link href="/admin-finance" className="hover:text-foreground">
               Admin Finance
-            </a>
+            </Link>
             <a href="#public-data" className="hover:text-foreground">
-              Public Data
+              Insights
             </a>
           </nav>
           <Button variant="outline" onClick={toggleTheme} aria-label="Toggle dark mode">
@@ -854,157 +538,24 @@ export default function Home() {
           </div>
         </section>
 
-        <section id="admin-finance" className="space-y-4 rounded-xl border border-primary/20 bg-background/60 p-4 md:p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-2xl font-semibold tracking-tight">Admin real-time funding intelligence</h2>
-              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-                Monitor quarterly workplan spend, donor expectation alignment, and service delivery
-                utilization in real time. This section is visible for admin mode only.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={downloadFundingReport}>
-                <Download />
-                Funding CSV
-              </Button>
-              <Button variant="outline" onClick={downloadQuarterlyBrief}>
-                <FileDown />
-                Quarterly PDF
-              </Button>
-            </div>
+        <section className="space-y-4">
+          <h2 className="text-2xl font-semibold tracking-tight">Program tracks</h2>
+          <div className="grid gap-2">
+            {PROGRAM_PILLARS.map((pillar, index) => (
+              <article
+                key={pillar.name}
+                className="flex items-center justify-between rounded-lg border border-primary/10 bg-gradient-to-r from-primary/5 to-transparent px-3 py-2"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-xs text-primary">
+                    {index + 1}
+                  </span>
+                  <p className="font-medium">{pillar.name}</p>
+                </div>
+                <p className="max-w-xl text-right text-sm text-muted-foreground">{pillar.description}</p>
+              </article>
+            ))}
           </div>
-
-          {!adminMode ? (
-            <div className="rounded-lg border border-dashed border-primary/30 bg-background/70 p-4 text-sm text-muted-foreground">
-              Enable <span className="font-medium text-foreground">Admin: Dots Visible</span> in the map
-              controls to unlock real-time funding and service intelligence.
-            </div>
-          ) : (
-            <>
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-lg border border-primary/15 bg-background/70 p-3">
-                  <p className="text-xs text-muted-foreground">Total funding envelope</p>
-                  <p className="mt-1 text-xl font-semibold">${TOTAL_FUNDING_USD.toLocaleString()}</p>
-                </div>
-                <div className="rounded-lg border border-primary/15 bg-background/70 p-3">
-                  <p className="text-xs text-muted-foreground">Utilized in real time</p>
-                  <p className="mt-1 text-xl font-semibold">
-                    ${fundingSummary.actualSpent.toLocaleString()} ({fundingSummary.utilizationPct.toFixed(1)}%)
-                  </p>
-                </div>
-                <div className="rounded-lg border border-primary/15 bg-background/70 p-3">
-                  <p className="text-xs text-muted-foreground">Runway balance</p>
-                  <p className="mt-1 text-xl font-semibold">${fundingSummary.runwayUsd.toLocaleString()}</p>
-                </div>
-                <div className="rounded-lg border border-primary/15 bg-background/70 p-3">
-                  <p className="text-xs text-muted-foreground">Beneficiaries reached</p>
-                  <p className="mt-1 text-xl font-semibold">{fundingSummary.reached.toLocaleString()}</p>
-                </div>
-              </div>
-
-              <div className="grid gap-6 lg:grid-cols-2">
-                <div>
-                  <h3 className="flex items-center gap-2 text-lg font-semibold">
-                    <CalendarClock className="size-4 text-primary" />
-                    Quarterly workplan analysis
-                  </h3>
-                  <div className="mt-3 space-y-3 rounded-xl border border-primary/15 p-3">
-                    {quarterlyAnalytics.map((item) => (
-                      <div key={item.quarter}>
-                        <div className="mb-1 flex items-center justify-between text-sm">
-                          <span className="font-medium">{item.quarter}</span>
-                          <span className="text-muted-foreground">
-                            ${item.actual.toLocaleString()} / ${item.planned.toLocaleString()} ({item.utilization.toFixed(1)}%)
-                          </span>
-                        </div>
-                        <div className="h-2 rounded-full bg-muted">
-                          <div
-                            className="h-2 rounded-full bg-primary"
-                            style={{ width: `${Math.min(item.utilization, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="flex items-center gap-2 text-lg font-semibold">
-                    <BriefcaseBusiness className="size-4 text-primary" />
-                    Annual funding + reach trend
-                  </h3>
-                  <div className="mt-3 rounded-xl border border-primary/15 p-4">
-                    <div className="flex h-40 items-end gap-2">
-                      {annualFundingSeries.map((point) => (
-                        <div key={point.year} className="flex flex-1 flex-col items-center gap-2">
-                          <div
-                            className="w-full rounded-md bg-accent"
-                            style={{ height: `${Math.max((point.spent / TOTAL_FUNDING_USD) * 150, 8)}px` }}
-                          />
-                          <span className="text-[11px] text-muted-foreground">{point.year}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                      {annualFundingSeries.map((point) => (
-                        <p key={`${point.year}-meta`}>
-                          {point.year}: ${point.spent.toLocaleString()} | {point.reached.toLocaleString()} reached
-                        </p>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="mb-2 flex items-center gap-2 text-lg font-semibold">
-                  <DollarSign className="size-4 text-primary" />
-                  Live activity spend tracker
-                </h3>
-                <div className="rounded-xl border border-primary/15">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Activity</TableHead>
-                        <TableHead>Quarter</TableHead>
-                        <TableHead>Sector</TableHead>
-                        <TableHead>Planned (USD)</TableHead>
-                        <TableHead>Actual (USD)</TableHead>
-                        <TableHead>Reached</TableHead>
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {workplanActivities.slice(0, 10).map((activity) => (
-                        <TableRow key={activity.id}>
-                          <TableCell>{activity.title}</TableCell>
-                          <TableCell>{activity.quarter}</TableCell>
-                          <TableCell>{activity.sector}</TableCell>
-                          <TableCell>${activity.plannedUsd.toLocaleString()}</TableCell>
-                          <TableCell>${activity.actualUsd.toLocaleString()}</TableCell>
-                          <TableCell>{activity.beneficiariesReached}</TableCell>
-                          <TableCell>{activity.status}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Real-time simulation tick: {liveTick} (updates every 4 seconds)
-                </p>
-              </div>
-            </>
-          )}
-        </section>
-
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {PROGRAM_PILLARS.map((pillar) => (
-            <article key={pillar.name} className="rounded-lg border border-primary/15 bg-background/60 p-3">
-              <h3 className="font-medium">{pillar.name}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">{pillar.description}</p>
-            </article>
-          ))}
         </section>
 
         <section id="stories" className="grid gap-6 lg:grid-cols-[1.3fr_1fr]">
@@ -1086,216 +637,25 @@ export default function Home() {
           ))}
         </section>
 
-        <section id="dashboard" className="py-1">
-          <h2 className="text-2xl font-semibold tracking-tight">Dashboard controls</h2>
-          <p className="mt-2 max-w-3xl text-muted-foreground">
-            Use these controls to explore the operational layer behind the impact story.
+        <section id="public-data" className="rounded-xl border border-primary/15 bg-background/60 p-4">
+          <h2 className="text-xl font-semibold tracking-tight">Quick insights</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Keep the homepage focused. Open detailed analytics and records from these shortcuts.
           </p>
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <Select value={selectedWard} onValueChange={(value) => setSelectedWard(value ?? "all")}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Ward" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Wards</SelectItem>
-                {WARDS.map((ward) => (
-                  <SelectItem key={ward} value={ward}>
-                    {ward}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={selectedAidType}
-              onValueChange={(value) => setSelectedAidType(value ?? "all")}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Program" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Programs</SelectItem>
-                {AID_TYPES.map((aidType) => (
-                  <SelectItem key={aidType} value={aidType}>
-                    {aidType}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Input
-              type="date"
-              value={startDate}
-              onChange={(event) => setStartDate(event.target.value)}
-              aria-label="Start date"
-            />
-            <Input
-              type="date"
-              value={endDate}
-              onChange={(event) => setEndDate(event.target.value)}
-              aria-label="End date"
-            />
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <Link href="/beneficiaries" className="rounded-lg border border-primary/15 p-3 hover:bg-muted/40">
+              <p className="font-medium">Beneficiary profiles</p>
+              <p className="mt-1 text-sm text-muted-foreground">Search, history, schools, appraisal.</p>
+            </Link>
+            <Link href="/admin-finance" className="rounded-lg border border-primary/15 p-3 hover:bg-muted/40">
+              <p className="font-medium">Funding intelligence</p>
+              <p className="mt-1 text-sm text-muted-foreground">Quarterly utilization and admin tracking.</p>
+            </Link>
+            <Link href="/dashboard-controls" className="rounded-lg border border-primary/15 p-3 hover:bg-muted/40">
+              <p className="font-medium">Impact filters</p>
+              <p className="mt-1 text-sm text-muted-foreground">Refine map and export reports quickly.</p>
+            </Link>
           </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button onClick={downloadCsv}>
-              <Download />
-              Export CSV
-            </Button>
-            <Button variant="outline" onClick={downloadPdf}>
-              <FileDown />
-              Export PDF
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setSelectedWard("all");
-                setSelectedAidType("all");
-                setStartDate("");
-                setEndDate("");
-              }}
-            >
-              Reset Filters
-            </Button>
-          </div>
-          {exportMessage ? <p className="mt-2 text-sm text-muted-foreground">{exportMessage}</p> : null}
-        </section>
-
-        <section id="public-data" className="grid gap-6 lg:grid-cols-2">
-          <div>
-            <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-              <BarChart3 className="size-5 text-primary" />
-              Program distribution
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Derived from current filter settings and designed for public transparency.
-            </p>
-            <div className="mt-4 space-y-3">
-              {aidTypeDistribution.map((item) => (
-                <div key={item.type}>
-                  <div className="mb-1 flex items-center justify-between text-sm">
-                    <span>{item.type}</span>
-                    <span className="text-muted-foreground">{item.count.toLocaleString()}</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-muted">
-                    <div
-                      className="h-2 rounded-full bg-primary/80"
-                      style={{ width: `${item.widthPercent}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-              <TrendingUp className="size-5 text-primary" />
-              6-month outcome trend
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Average aid score over time from anonymized operational records.
-            </p>
-            <div className="mt-4 rounded-xl border p-4">
-              <div className="flex h-40 items-end gap-3">
-                {monthlyImpactTrend.map((point) => (
-                  <div key={point.month} className="flex flex-1 flex-col items-center gap-2">
-                    <div
-                      className="w-full rounded-md bg-accent"
-                      style={{ height: `${Math.max((point.avgScore / 100) * 120, 8)}px` }}
-                    />
-                    <span className="text-[11px] text-muted-foreground">{point.month.slice(5)}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-                {monthlyImpactTrend.map((point) => (
-                  <p key={`${point.month}-label`}>
-                    {point.month}: {point.avgScore.toFixed(1)}
-                  </p>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight">Coverage ring</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Share of Kisumu wards reached by currently filtered interventions.
-            </p>
-            <div className="mt-4 flex items-center gap-5 rounded-xl border border-primary/15 p-4">
-              <div
-                className="grid h-28 w-28 place-items-center rounded-full"
-                style={{
-                  background: `conic-gradient(var(--color-primary) ${coverageRing}%, var(--color-muted) 0)`,
-                }}
-              >
-                <div className="grid h-20 w-20 place-items-center rounded-full bg-background text-center">
-                  <p className="text-2xl font-semibold">{coverageRing}%</p>
-                </div>
-              </div>
-              <div className="text-sm text-muted-foreground">
-                <p>Wards reached: {new Set(filteredData.map((item) => item.ward)).size}</p>
-                <p>Total tracked wards: {WARDS.length}</p>
-                <p className="mt-2 text-foreground">Target: 100% ward coverage</p>
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight">Top ward performance</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Highest average impact scores from current filters.
-            </p>
-            <div className="mt-4 space-y-3 rounded-xl border border-primary/15 p-4">
-              {wardPerformance.map((item) => (
-                <div key={item.ward}>
-                  <div className="mb-1 flex items-center justify-between text-sm">
-                    <span>{item.ward}</span>
-                    <span className="text-muted-foreground">
-                      {item.avg.toFixed(1)} avg / {item.count} beneficiaries
-                    </span>
-                  </div>
-                  <div className="h-2 rounded-full bg-muted">
-                    <div className="h-2 rounded-full bg-primary" style={{ width: `${item.width}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section>
-          <h2 className="text-lg font-semibold">Anonymized feed for map layer</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Public-safe fields only. Use this data to feed your map component.
-            </p>
-            <div className="mt-3">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Household (Masked)</TableHead>
-                    <TableHead>Ward</TableHead>
-                    <TableHead>Program</TableHead>
-                    <TableHead>Impact Score</TableHead>
-                    <TableHead>Report Month</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {publicRows.slice(0, 16).map((item) => (
-                    <TableRow key={`${item.household}-${item.period}-${item.ward}`}>
-                      <TableCell>{item.household}</TableCell>
-                      <TableCell>{item.ward}</TableCell>
-                      <TableCell>{item.aidType}</TableCell>
-                      <TableCell>{item.aidScore}</TableCell>
-                      <TableCell>{item.period}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
         </section>
       </main>
 
