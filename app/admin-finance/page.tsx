@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 type Sector = "Education" | "Health" | "ICT" | "YE&L" | "Disability" | "Climate Change";
 type Activity = {
   id: string;
+  year: 2025 | 2026;
   quarter: "Q1" | "Q2" | "Q3" | "Q4";
   sector: Sector;
   cadence: "Daily" | "Weekly" | "Monthly";
@@ -31,18 +32,15 @@ type Activity = {
 };
 
 const TOTAL_FUNDING_USD = 1_000_000;
-const QUARTERS = ["Q1", "Q2", "Q3", "Q4"] as const;
+const PERIODS = [
+  { year: 2025 as const, quarter: "Q1" as const },
+  { year: 2025 as const, quarter: "Q2" as const },
+  { year: 2025 as const, quarter: "Q3" as const },
+  { year: 2026 as const, quarter: "Q1" as const },
+];
 
 function quarterToIndex(quarter: "Q1" | "Q2" | "Q3" | "Q4") {
-  return QUARTERS.indexOf(quarter);
-}
-
-function getCurrentQuarter(now: Date): "Q1" | "Q2" | "Q3" | "Q4" {
-  const month = now.getMonth();
-  if (month <= 2) return "Q1";
-  if (month <= 5) return "Q2";
-  if (month <= 8) return "Q3";
-  return "Q4";
+  return (["Q1", "Q2", "Q3", "Q4"] as const).indexOf(quarter);
 }
 
 function seededRandom(seed: number): () => number {
@@ -60,8 +58,8 @@ function randomBetween(rng: () => number, min: number, max: number) {
 function generateActivities(seed = 2026): Activity[] {
   const rng = seededRandom(seed);
   const now = new Date();
-  const currentQuarter = getCurrentQuarter(now);
-  const currentQuarterIndex = quarterToIndex(currentQuarter);
+  const currentQuarter = "Q1";
+  const currentYear = 2026;
   const titles = [
     "School fee disbursement",
     "Ward planning meeting",
@@ -73,7 +71,6 @@ function generateActivities(seed = 2026): Activity[] {
     "Monitoring & evaluation review",
   ];
   const sectors: Sector[] = ["Education", "Health", "ICT", "YE&L", "Disability", "Climate Change"];
-  const quarters: Array<"Q1" | "Q2" | "Q3" | "Q4"> = ["Q1", "Q1", "Q2", "Q2", "Q3", "Q3", "Q4", "Q4"];
   const cadences: Array<"Daily" | "Weekly" | "Monthly"> = ["Daily", "Weekly", "Monthly"];
   const organizers = ["Bruno", "Akinyi", "Otieno", "Faith", "Omondi", "Atieno"];
   const organizations = ["Africii Kenya", "Nyalenda CBO Network", "Kisumu Education Desk", "Health Link Trust"];
@@ -86,11 +83,13 @@ function generateActivities(seed = 2026): Activity[] {
   ];
 
   return Array.from({ length: 16 }, (_, idx) => {
-    const quarter = quarters[idx % quarters.length];
+    const period = PERIODS[idx % PERIODS.length];
+    const quarter = period.quarter;
+    const year = period.year;
     const quarterIndex = quarterToIndex(quarter);
     const quarterStartMonth = quarterIndex * 3;
     const scheduledAt = new Date(
-      now.getFullYear(),
+      year,
       quarterStartMonth + randomBetween(rng, 0, 2),
       randomBetween(rng, 2, 26),
       randomBetween(rng, 8, 16),
@@ -103,18 +102,23 @@ function generateActivities(seed = 2026): Activity[] {
     let status: Activity["status"] = "Scheduled";
     let completedAt: string | undefined;
 
-    if (quarterIndex < currentQuarterIndex) {
+    const isClosedQuarter = year < currentYear || (year === currentYear && quarter !== currentQuarter);
+    const isCurrentQuarter = year === currentYear && quarter === currentQuarter;
+    const periodScale = year === 2026 && quarter === "Q1" ? 1.25 : year === 2025 && quarter === "Q3" ? 1.05 : 0.9;
+    const scaledPlanned = Math.round(planned * periodScale);
+
+    if (isClosedQuarter) {
       // Closed quarters should look final and immutable.
-      actual = randomBetween(rng, Math.round(planned * 0.82), planned);
+      actual = randomBetween(rng, Math.round(scaledPlanned * 0.82), scaledPlanned);
       status = "Completed";
       scheduleLabel = "Closed quarter";
       const completedDate = new Date(scheduledAt);
       completedDate.setDate(scheduledAt.getDate() + randomBetween(rng, 0, 5));
       completedDate.setHours(randomBetween(rng, 12, 18));
       completedAt = completedDate.toISOString();
-    } else if (quarterIndex > currentQuarterIndex) {
+    } else if (!isCurrentQuarter) {
       // Future quarter plans stay scheduled with early commitments only.
-      actual = randomBetween(rng, Math.round(planned * 0.04), Math.round(planned * 0.22));
+      actual = randomBetween(rng, Math.round(scaledPlanned * 0.04), Math.round(scaledPlanned * 0.22));
       status = "Scheduled";
       scheduleLabel = scheduledAt.getMonth() === now.getMonth() ? "Later this month" : "Upcoming quarter";
     } else if (lifecycle === 0) {
@@ -140,6 +144,7 @@ function generateActivities(seed = 2026): Activity[] {
 
     return {
       id: `ACT-${String(idx + 1).padStart(3, "0")}`,
+      year,
       quarter,
       sector: sectors[idx % sectors.length],
       cadence: cadences[idx % cadences.length],
@@ -147,7 +152,7 @@ function generateActivities(seed = 2026): Activity[] {
       organization: organizations[idx % organizations.length],
       location: locations[idx % locations.length],
       title: titles[idx % titles.length],
-      plannedUsd: planned,
+      plannedUsd: scaledPlanned,
       actualUsd: actual,
       attendance: randomBetween(rng, 20, 220),
       successCriteria: successCriteria[idx % successCriteria.length],
@@ -233,20 +238,21 @@ export default function AdminFinancePage() {
   const [activities, setActivities] = useState<Activity[]>(() => generateActivities());
   const router = useRouter();
   const pathname = usePathname();
-  const [selectedQuarter, setSelectedQuarter] = useState<"all" | "Q1" | "Q2" | "Q3" | "Q4">(() => {
+  const [selectedPeriod, setSelectedPeriod] = useState<"all" | "2025-Q1" | "2025-Q2" | "2025-Q3" | "2026-Q1">(() => {
     if (typeof window === "undefined") return "all";
-    const quarter = new URLSearchParams(window.location.search).get("quarter");
-    return quarter === "Q1" || quarter === "Q2" || quarter === "Q3" || quarter === "Q4"
-      ? quarter
+    const period = new URLSearchParams(window.location.search).get("period");
+    return period === "2025-Q1" || period === "2025-Q2" || period === "2025-Q3" || period === "2026-Q1"
+      ? period
       : "all";
   });
 
   useEffect(() => {
-    const currentQuarter = getCurrentQuarter(new Date());
+    const currentQuarter = "Q1";
+    const currentYear = 2026;
     const timer = window.setInterval(() => {
       setActivities((previous) =>
         previous.map((activity, idx) => {
-          if (activity.quarter !== currentQuarter) return activity;
+          if (activity.quarter !== currentQuarter || activity.year !== currentYear) return activity;
           if (activity.status === "Completed") return activity;
           const increment = ((idx % 4) + 1) * 140;
           const nextActual = Math.min(activity.plannedUsd, activity.actualUsd + increment);
@@ -270,10 +276,10 @@ export default function AdminFinancePage() {
   }, []);
 
   const filteredActivities = useMemo(() => {
-    return selectedQuarter === "all"
-      ? activities
-      : activities.filter((activity) => activity.quarter === selectedQuarter);
-  }, [activities, selectedQuarter]);
+    if (selectedPeriod === "all") return activities;
+    const [year, quarter] = selectedPeriod.split("-") as ["2025" | "2026", "Q1" | "Q2" | "Q3" | "Q4"];
+    return activities.filter((activity) => String(activity.year) === year && activity.quarter === quarter);
+  }, [activities, selectedPeriod]);
 
   const summary = useMemo(() => {
     const planned = filteredActivities.reduce((sum, item) => sum + item.plannedUsd, 0);
@@ -297,18 +303,23 @@ export default function AdminFinancePage() {
   }, [filteredActivities]);
 
   const byQuarter = useMemo(() => {
-    return QUARTERS.map((quarter) => {
-      const rows = activities.filter((item) => item.quarter === quarter);
+    return PERIODS.map((period) => {
+      const rows = activities.filter((item) => item.quarter === period.quarter && item.year === period.year);
       const planned = rows.reduce((sum, item) => sum + item.plannedUsd, 0);
       const actual = rows.reduce((sum, item) => sum + item.actualUsd, 0);
-      return { quarter, planned, actual, utilization: planned ? (actual / planned) * 100 : 0 };
+      return {
+        period: `${period.year} ${period.quarter}`,
+        planned,
+        actual,
+        utilization: planned ? (actual / planned) * 100 : 0,
+      };
     });
   }, [activities]);
 
   const trendPoints = useMemo(() => {
     return byQuarter.map((item) => ({
-      key: item.quarter,
-      label: item.quarter,
+      key: item.period,
+      label: item.period,
       planned: item.planned,
       actual: item.actual,
     }));
@@ -364,39 +375,43 @@ export default function AdminFinancePage() {
           <h1 className="text-3xl font-semibold tracking-tight">Admin Real-Time Funding Intelligence</h1>
           <div className="flex flex-wrap items-center gap-2">
             <Select
-              value={selectedQuarter}
+              value={selectedPeriod}
               onValueChange={(value) => {
-                const selected = value === "Q1" || value === "Q2" || value === "Q3" || value === "Q4" ? value : "all";
+                const selected =
+                  value === "2025-Q1" || value === "2025-Q2" || value === "2025-Q3" || value === "2026-Q1"
+                    ? value
+                    : "all";
                 const params = new URLSearchParams(window.location.search);
                 if (selected === "all") {
-                  params.delete("quarter");
+                  params.delete("period");
                 } else {
-                  params.set("quarter", selected);
+                  params.set("period", selected);
                 }
                 const query = params.toString();
                 router.replace(query ? `${pathname}?${query}` : pathname);
-                setSelectedQuarter(selected);
+                setSelectedPeriod(selected);
               }}
             >
               <SelectTrigger className="w-[130px]">
-                <SelectValue placeholder="Quarter" />
+                <SelectValue placeholder="Period" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All</SelectItem>
-                <SelectItem value="Q1">Q1</SelectItem>
-                <SelectItem value="Q2">Q2</SelectItem>
-                <SelectItem value="Q3">Q3</SelectItem>
-                <SelectItem value="Q4">Q4</SelectItem>
+                <SelectItem value="2025-Q1">2025 Q1</SelectItem>
+                <SelectItem value="2025-Q2">2025 Q2</SelectItem>
+                <SelectItem value="2025-Q3">2025 Q3</SelectItem>
+                <SelectItem value="2026-Q1">2026 Q1</SelectItem>
               </SelectContent>
             </Select>
             <Button
               variant="outline"
               onClick={() => {
                 const header =
-                  "Activity,Quarter,Cadence,Sector,Organizer,Organization,Location,Planned USD,Actual USD,Attendance,Success Criteria,Success Rate,Status,Scheduled,Completed";
+                  "Activity,Year,Quarter,Cadence,Sector,Organizer,Organization,Location,Planned USD,Actual USD,Attendance,Success Criteria,Success Rate,Status,Scheduled,Completed";
                 const rows = filteredActivities.map((a) =>
                   [
                     a.title,
+                    a.year,
                     a.quarter,
                     a.cadence,
                     a.sector,
@@ -425,7 +440,7 @@ export default function AdminFinancePage() {
                 const reportLines = [
                   "AFRICII ADMIN FUNDING BRIEF",
                   `Generated: ${new Date().toLocaleString()}`,
-                  `Quarter filter: ${selectedQuarter.toUpperCase()}`,
+                  `Period filter: ${selectedPeriod.toUpperCase()}`,
                   "",
                   `Funding envelope: ${formatMoney(TOTAL_FUNDING_USD)}`,
                   `Planned: ${formatMoney(summary.planned)}`,
@@ -460,9 +475,9 @@ export default function AdminFinancePage() {
         </div>
         <div className="space-y-2">
           {byQuarter.map((item) => (
-            <div key={item.quarter}>
+            <div key={item.period}>
               <div className="mb-1 flex justify-between text-sm">
-                <span>{item.quarter}</span>
+                <span>{item.period}</span>
                 <span className="text-muted-foreground">{item.utilization.toFixed(1)}%</span>
               </div>
               <div className="h-2 rounded-full bg-muted">
@@ -567,6 +582,7 @@ export default function AdminFinancePage() {
               <TableHead>Cadence</TableHead>
               <TableHead>Lead</TableHead>
               <TableHead>Location</TableHead>
+              <TableHead>Year</TableHead>
               <TableHead>Quarter</TableHead>
               <TableHead>Sector</TableHead>
               <TableHead>Planned</TableHead>
@@ -594,6 +610,7 @@ export default function AdminFinancePage() {
                   <p className="text-xs text-muted-foreground">{a.organization}</p>
                 </TableCell>
                 <TableCell>{a.location}</TableCell>
+                <TableCell>{a.year}</TableCell>
                 <TableCell>{a.quarter}</TableCell>
                 <TableCell>{a.sector}</TableCell>
                 <TableCell>${a.plannedUsd.toLocaleString()}</TableCell>
